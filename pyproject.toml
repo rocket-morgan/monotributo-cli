@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monotributo-cli"
+version = "0.1.0"
+description = "CLI MVP para emisión de Factura C (Monotributo) usando PyAfipWs"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "click>=8.1",
+]
+
+[project.scripts]
+monofact = "monofact.cli:main"
+
+[tool.setuptools]
+packages = ["monofact"]

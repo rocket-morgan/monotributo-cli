@@ -1,0 +1,93 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal
+from hashlib import sha256
+
+
+@dataclass
+class InvoiceInput:
+    env: str
+    cuit: int
+    pto_vta: int
+    tipo_comp: int
+    doc_tipo: int
+    doc_nro: int
+    imp_total: Decimal
+    cbte_fch: str
+    concepto: int
+
+
+class AFIPAdapterError(Exception):
+    pass
+
+
+class AFIPAdapter:
+    def __init__(self, wsfe_url: str, cuit: int, token: str, sign: str, cache: str = "./cache"):
+        self.wsfe_url = wsfe_url
+        self.cuit = cuit
+        self.token = token
+        self.sign = sign
+        self.cache = cache
+        self._ws = None
+
+    def _get_ws(self):
+        if self._ws is not None:
+            return self._ws
+        try:
+            from pyafipws.wsfev1 import WSFEv1
+        except Exception as exc:
+            raise AFIPAdapterError("No se pudo importar pyafipws. Instalá pyafipws en el entorno.") from exc
+
+        ws = WSFEv1()
+        ws.Cuit = self.cuit
+        ws.Token = self.token
+        ws.Sign = self.sign
+        ws.Conectar(self.cache, self.wsfe_url)
+        self._ws = ws
+        return ws
+
+    def get_last_cbte(self, tipo_comp: int, pto_vta: int) -> int:
+        ws = self._get_ws()
+        last = ws.CompUltimoAutorizado(tipo_comp, pto_vta)
+        return int(last)
+
+    def emit_factura_c(self, data: InvoiceInput) -> dict:
+        ws = self._get_ws()
+        last = self.get_last_cbte(data.tipo_comp, data.pto_vta)
+        next_cbte = last + 1
+
+        ws.CrearFactura(
+            concepto=data.concepto,
+            tipo_doc=data.doc_tipo,
+            nro_doc=data.doc_nro,
+            tipo_cbte=data.tipo_comp,
+            punto_vta=data.pto_vta,
+            cbt_desde=next_cbte,
+            cbt_hasta=next_cbte,
+            imp_total=float(data.imp_total),
+            imp_tot_conc=0.00,
+            imp_neto=float(data.imp_total),
+            imp_iva=0.00,
+            imp_trib=0.00,
+            imp_op_ex=0.00,
+            fecha_cbte=data.cbte_fch,
+            moneda_id="PES",
+            moneda_ctz="1.0000",
+        )
+        ws.CAESolicitar()
+
+        fp = sha256(
+            f"{data.cuit}|{data.pto_vta}|{data.doc_tipo}|{data.doc_nro}|{data.cbte_fch}|{data.imp_total}".encode()
+        ).hexdigest()
+
+        return {
+            "ok": ws.Resultado == "A",
+            "resultado": ws.Resultado,
+            "cbte_nro": next_cbte,
+            "cae": ws.CAE,
+            "cae_vto": ws.Vencimiento,
+            "obs": getattr(ws, "Observaciones", None) or [],
+            "errors": getattr(ws, "Errores", None) or [],
+            "fingerprint": fp,
+        }
