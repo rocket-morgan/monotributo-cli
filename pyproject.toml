@@ -10,10 +10,20 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "click>=8.1",
+  "pyafipws",
+  "setuptools>=82",
 ]
 
 [project.scripts]
 monofact = "monofact.cli:main"
 
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+]
+
 [tool.setuptools]
 packages = ["monofact"]
+
+[tool.uv.sources]
+pyafipws = { path = "../pyafipws", editable = true }
