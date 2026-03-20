@@ -35,9 +35,16 @@ class AuthCredentials:
     profile_name: str | None = None
 
 
+def _normalize_manual_credentials(token: str, sign: str) -> tuple[str, str]:
+    token = token.strip()
+    sign = sign.strip()
+    if _looks_like_file_reference(token) and _looks_like_file_reference(sign):
+        return "", ""
+    return token, sign
+
+
 def inspect_auth(settings: Settings) -> tuple[str, str | None]:
-    token = settings.token.strip()
-    sign = settings.sign.strip()
+    token, sign = _normalize_manual_credentials(settings.token, settings.sign)
     if token and sign:
         return "manual", None
     if token or sign:
@@ -47,8 +54,7 @@ def inspect_auth(settings: Settings) -> tuple[str, str | None]:
 
 
 def resolve_auth_credentials(settings: Settings, force_refresh: bool = False) -> AuthCredentials:
-    token = settings.token.strip()
-    sign = settings.sign.strip()
+    token, sign = _normalize_manual_credentials(settings.token, settings.sign)
     if token and sign:
         return AuthCredentials(
             token=token,
@@ -150,6 +156,17 @@ def _resolve_repo_path(pyafipws_dir: Path, raw_path: str) -> Path:
     if candidate.is_absolute():
         return candidate.resolve()
     return (pyafipws_dir / candidate).resolve()
+
+
+def _looks_like_file_reference(value: str) -> bool:
+    if not value:
+        return False
+    candidate = Path(value).expanduser()
+    if candidate.exists():
+        return True
+    if any(sep in value for sep in ("/", "\\")):
+        return True
+    return False
 
 
 def _ta_path(service: str, cert_path: Path, key_path: Path, cache_dir: Path) -> Path:

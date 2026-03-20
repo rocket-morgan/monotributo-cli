@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from dataclasses import dataclass
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 
 def _default_pyafipws_dir() -> str:
@@ -28,6 +31,16 @@ class Settings:
         return self.wsfe_homo if self.env == "homo" else self.wsfe_prod
 
 
+@lru_cache(maxsize=None)
+def _load_dotenv_once(dotenv_path: str) -> None:
+    load_dotenv(dotenv_path=dotenv_path, override=False)
+
+
+def _autoload_dotenv() -> None:
+    dotenv_path = str((Path.cwd() / ".env").resolve())
+    _load_dotenv_once(dotenv_path)
+
+
 
 def load_settings(
     env: str | None = None,
@@ -39,6 +52,7 @@ def load_settings(
     db_path: str | None = None,
     pyafipws_dir: str | None = None,
 ) -> Settings:
+    _autoload_dotenv()
     envv = env or os.getenv("MONOFACT_ENV", "homo")
     return Settings(
         env=envv,

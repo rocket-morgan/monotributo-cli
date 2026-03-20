@@ -8,7 +8,23 @@ import monofact.auth as auth_mod
 import monofact.cli as cli_mod
 from monofact.auth import inspect_auth, resolve_auth_credentials
 from monofact.cli import main
-from monofact.config import load_settings
+from monofact.config import _load_dotenv_once, load_settings
+
+
+def _clear_monofact_env(monkeypatch):
+    for key in [
+        "MONOFACT_ENV",
+        "MONOFACT_CUIT",
+        "MONOFACT_PTO_VTA",
+        "MONOFACT_TIPO_COMP_FACTURA_C",
+        "MONOFACT_TOKEN",
+        "MONOFACT_SIGN",
+        "MONOFACT_DB_PATH",
+        "MONOFACT_PYAFIPWS_DIR",
+        "MONOFACT_WSFE_HOMO",
+        "MONOFACT_WSFE_PROD",
+    ]:
+        monkeypatch.delenv(key, raising=False)
 
 
 def _make_pyafipws_profile(tmp_path: Path, profile_name: str) -> Path:
@@ -110,3 +126,109 @@ def test_auth_refresh_command_returns_profile_metadata(monkeypatch, tmp_path):
     assert data["env"] == "homo"
     assert data["profile"] == "homologacion"
     assert data["ta_path"].endswith("TA-test.xml")
+
+
+def test_path_like_token_and_sign_fall_back_to_pyafipws(monkeypatch, tmp_path):
+    pyafipws_dir = _make_pyafipws_profile(tmp_path, "homologacion")
+    token_file = tmp_path / "token.txt"
+    sign_file = tmp_path / "sign.txt"
+    token_file.write_text("not-a-real-token")
+    sign_file.write_text("not-a-real-sign")
+
+    settings = load_settings(
+        env="homo",
+        cuit=20123456789,
+        pto_vta=1,
+        token=str(token_file),
+        sign=str(sign_file),
+        pyafipws_dir=str(pyafipws_dir),
+    )
+
+    assert inspect_auth(settings) == ("pyafipws", "homologacion")
+
+
+def test_config_check_autoloads_dotenv(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    _clear_monofact_env(monkeypatch)
+    _load_dotenv_once.cache_clear()
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "MONOFACT_ENV=homo",
+                "MONOFACT_CUIT=20123456789",
+                "MONOFACT_PTO_VTA=2",
+                "MONOFACT_PYAFIPWS_DIR=" + str(_make_pyafipws_profile(tmp_path, "homologacion")),
+            ]
+        )
+    )
+
+    runner = CliRunner()
+    res = runner.invoke(main, ["config-check"], env={})
+
+    assert res.exit_code == 0
+    data = json.loads(res.output)
+    assert data["ok"] is True
+    assert data["cuit"] == 20123456789
+    assert data["pto_vta"] == 2
+
+
+def test_shell_env_overrides_dotenv(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    _clear_monofact_env(monkeypatch)
+    _load_dotenv_once.cache_clear()
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "MONOFACT_ENV=homo",
+                "MONOFACT_CUIT=11111111111",
+                "MONOFACT_PTO_VTA=7",
+                "MONOFACT_PYAFIPWS_DIR=" + str(_make_pyafipws_profile(tmp_path, "homologacion")),
+            ]
+        )
+    )
+
+    runner = CliRunner()
+    res = runner.invoke(
+        main,
+        ["config-check"],
+        env={
+            "MONOFACT_CUIT": "20123456789",
+            "MONOFACT_PTO_VTA": "2",
+        },
+    )
+
+    assert res.exit_code == 0
+    data = json.loads(res.output)
+    assert data["cuit"] == 20123456789
+    assert data["pto_vta"] == 2
+
+
+def test_flags_override_shell_and_dotenv(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    _clear_monofact_env(monkeypatch)
+    _load_dotenv_once.cache_clear()
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "MONOFACT_ENV=homo",
+                "MONOFACT_CUIT=11111111111",
+                "MONOFACT_PTO_VTA=7",
+                "MONOFACT_PYAFIPWS_DIR=" + str(_make_pyafipws_profile(tmp_path, "homologacion")),
+            ]
+        )
+    )
+
+    runner = CliRunner()
+    res = runner.invoke(
+        main,
+        ["config-check", "--cuit", "20123456789", "--pto-vta", "2"],
+        env={
+            "MONOFACT_CUIT": "29999999999",
+            "MONOFACT_PTO_VTA": "9",
+        },
+    )
+
+    assert res.exit_code == 0
+    data = json.loads(res.output)
+    assert data["cuit"] == 20123456789
+    assert data["pto_vta"] == 2

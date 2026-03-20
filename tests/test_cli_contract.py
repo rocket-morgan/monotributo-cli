@@ -179,3 +179,29 @@ def test_contract_validation_error_shape(tmp_path):
     assert set(data.keys()) == {"ok", "error_type", "errors"}
     assert data["error_type"] == "validation"
     assert isinstance(data["errors"], list)
+
+
+def test_contract_invoice_create_validation_error_shape(tmp_path):
+    runner = CliRunner()
+    env = _base_env(tmp_path)
+    env["MONOFACT_CUIT"] = "0"
+
+    res = runner.invoke(
+        main,
+        [
+            "invoice-create",
+            "--doc-tipo",
+            "96",
+            "--doc-nro",
+            "12345678",
+            "--imp-total",
+            "1500.00",
+        ],
+        env=env,
+    )
+
+    assert res.exit_code == 2
+    data = json.loads(res.output)
+    assert set(data.keys()) == {"ok", "error_type", "errors"}
+    assert data["error_type"] == "validation"
+    assert isinstance(data["errors"], list)

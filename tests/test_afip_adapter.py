@@ -50,6 +50,7 @@ def test_emit_factura_c_ok(monkeypatch):
     assert len(res["fingerprint"]) == 64
     assert fake_ws.solicitar_calls == 1
     assert fake_ws.crear_factura_calls[0]["tipo_cbte"] == 11
+    assert fake_ws.crear_factura_calls[0]["condicion_iva_receptor_id"] is None
 
 
 def test_emit_factura_c_rejected(monkeypatch):
@@ -83,3 +84,53 @@ def test_get_last_cbte(monkeypatch):
     monkeypatch.setattr(adapter, "_get_ws", lambda: fake_ws)
 
     assert adapter.get_last_cbte(11, 1) == 77
+
+
+def test_emit_factura_c_passes_condicion_iva_receptor_id(monkeypatch):
+    fake_ws = FakeWS(last=10, resultado="A")
+    adapter = AFIPAdapter("http://fake/wsdl", cuit=20123456789, token="tok", sign="sig")
+    monkeypatch.setattr(adapter, "_get_ws", lambda: fake_ws)
+
+    req = InvoiceInput(
+        env="homo",
+        cuit=20123456789,
+        pto_vta=1,
+        tipo_comp=11,
+        doc_tipo=99,
+        doc_nro=0,
+        imp_total=Decimal("1000.00"),
+        cbte_fch="20260320",
+        concepto=2,
+        condicion_iva_receptor_id=5,
+    )
+
+    adapter.emit_factura_c(req)
+
+    assert fake_ws.crear_factura_calls[0]["condicion_iva_receptor_id"] == 5
+
+
+def test_emit_factura_c_passes_service_dates(monkeypatch):
+    fake_ws = FakeWS(last=10, resultado="A")
+    adapter = AFIPAdapter("http://fake/wsdl", cuit=20123456789, token="tok", sign="sig")
+    monkeypatch.setattr(adapter, "_get_ws", lambda: fake_ws)
+
+    req = InvoiceInput(
+        env="homo",
+        cuit=20123456789,
+        pto_vta=1,
+        tipo_comp=11,
+        doc_tipo=99,
+        doc_nro=0,
+        imp_total=Decimal("1000.00"),
+        cbte_fch="20260320",
+        concepto=2,
+        fecha_serv_desde="20260320",
+        fecha_serv_hasta="20260320",
+        fecha_venc_pago="20260320",
+    )
+
+    adapter.emit_factura_c(req)
+
+    assert fake_ws.crear_factura_calls[0]["fecha_serv_desde"] == "20260320"
+    assert fake_ws.crear_factura_calls[0]["fecha_serv_hasta"] == "20260320"
+    assert fake_ws.crear_factura_calls[0]["fecha_venc_pago"] == "20260320"

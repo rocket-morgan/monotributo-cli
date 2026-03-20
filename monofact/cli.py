@@ -17,6 +17,39 @@ def _print(payload: dict, code: int = 0):
     raise SystemExit(code)
 
 
+def _validate_runtime_settings(settings) -> list[str]:
+    errors = []
+    if settings.cuit <= 0:
+        errors.append("CUIT inválido")
+    if settings.pto_vta <= 0:
+        errors.append("Punto de venta inválido")
+    try:
+        inspect_auth(settings)
+    except AuthError as exc:
+        errors.append(str(exc))
+    return errors
+
+
+def _resolve_condicion_iva_receptor_id(doc_tipo: int, explicit_value: int | None) -> int | None:
+    if explicit_value is not None:
+        return explicit_value
+    if doc_tipo == 99:
+        return 5
+    return None
+
+
+def _resolve_service_dates(
+    concepto: int,
+    cbte_fch: str,
+    fecha_serv_desde: str | None,
+    fecha_serv_hasta: str | None,
+) -> tuple[str | None, str | None, str | None]:
+    if concepto in (2, 3):
+        today = dt.date.today().strftime("%Y%m%d")
+        return fecha_serv_desde or cbte_fch, fecha_serv_hasta or cbte_fch, today
+    return None, None, None
+
+
 @click.group()
 def main():
     """CLI MVP Factura C (Monotributo) sobre PyAfipWs."""
@@ -30,15 +63,7 @@ def main():
 @click.option("--sign")
 def config_check(env, cuit, pto_vta, token, sign):
     s = load_settings(env=env, cuit=cuit, pto_vta=pto_vta, token=token, sign=sign)
-    errors = []
-    if s.cuit <= 0:
-        errors.append("CUIT inválido")
-    if s.pto_vta <= 0:
-        errors.append("Punto de venta inválido")
-    try:
-        inspect_auth(s)
-    except AuthError as exc:
-        errors.append(str(exc))
+    errors = _validate_runtime_settings(s)
 
     if errors:
         _print({"ok": False, "error_type": "validation", "errors": errors}, 2)
@@ -86,6 +111,9 @@ def auth_refresh(env, force):
 @click.option("--sign")
 def invoice_last(env, cuit, pto_vta, tipo_comp, token, sign):
     s = load_settings(env=env, cuit=cuit, pto_vta=pto_vta, tipo_comp=tipo_comp, token=token, sign=sign)
+    errors = _validate_runtime_settings(s)
+    if errors:
+        _print({"ok": False, "error_type": "validation", "errors": errors}, 2)
     try:
         creds = resolve_auth_credentials(s)
         afip = AFIPAdapter(wsfe_url=s.wsfe_url, cuit=s.cuit, token=creds.token, sign=creds.sign)
@@ -109,16 +137,45 @@ def invoice_last(env, cuit, pto_vta, tipo_comp, token, sign):
 @click.option("--imp-total", type=Decimal, required=True)
 @click.option("--cbte-fch", type=str)
 @click.option("--concepto", type=int, default=1)
+@click.option("--fecha-serv-desde", type=str)
+@click.option("--fecha-serv-hasta", type=str)
+@click.option("--cond-iva-receptor-id", type=int)
 @click.option("--token")
 @click.option("--sign")
-def invoice_create(env, cuit, pto_vta, tipo_comp, doc_tipo, doc_nro, imp_total, cbte_fch, concepto, token, sign):
+def invoice_create(
+    env,
+    cuit,
+    pto_vta,
+    tipo_comp,
+    doc_tipo,
+    doc_nro,
+    imp_total,
+    cbte_fch,
+    concepto,
+    fecha_serv_desde,
+    fecha_serv_hasta,
+    cond_iva_receptor_id,
+    token,
+    sign,
+):
     s = load_settings(env=env, cuit=cuit, pto_vta=pto_vta, tipo_comp=tipo_comp, token=token, sign=sign)
+    resolved_cond_iva_receptor_id = _resolve_condicion_iva_receptor_id(doc_tipo, cond_iva_receptor_id)
 
+    errors = _validate_runtime_settings(s)
     if imp_total <= 0:
-        _print({"ok": False, "error_type": "validation", "message": "imp_total debe ser > 0"}, 2)
+        errors.append("imp_total debe ser > 0")
+    if errors:
+        _print({"ok": False, "error_type": "validation", "errors": errors}, 2)
 
     if not cbte_fch:
         cbte_fch = dt.date.today().strftime("%Y%m%d")
+
+    fecha_serv_desde, fecha_serv_hasta, fecha_venc_pago = _resolve_service_dates(
+        concepto,
+        cbte_fch,
+        fecha_serv_desde,
+        fecha_serv_hasta,
+    )
 
     req = InvoiceInput(
         env=s.env,
@@ -130,6 +187,10 @@ def invoice_create(env, cuit, pto_vta, tipo_comp, doc_tipo, doc_nro, imp_total, 
         imp_total=imp_total,
         cbte_fch=cbte_fch,
         concepto=concepto,
+        condicion_iva_receptor_id=resolved_cond_iva_receptor_id,
+        fecha_serv_desde=fecha_serv_desde,
+        fecha_serv_hasta=fecha_serv_hasta,
+        fecha_venc_pago=fecha_venc_pago,
     )
 
     payload = {
@@ -142,6 +203,10 @@ def invoice_create(env, cuit, pto_vta, tipo_comp, doc_tipo, doc_nro, imp_total, 
         "imp_total": str(imp_total),
         "cbte_fch": cbte_fch,
         "concepto": concepto,
+        "condicion_iva_receptor_id": resolved_cond_iva_receptor_id,
+        "fecha_serv_desde": fecha_serv_desde,
+        "fecha_serv_hasta": fecha_serv_hasta,
+        "fecha_venc_pago": fecha_venc_pago,
     }
 
     try:

@@ -16,6 +16,10 @@ class InvoiceInput:
     imp_total: Decimal
     cbte_fch: str
     concepto: int
+    condicion_iva_receptor_id: int | None = None
+    fecha_serv_desde: str | None = None
+    fecha_serv_hasta: str | None = None
+    fecha_venc_pago: str | None = None
 
 
 class AFIPAdapterError(Exception):
@@ -72,8 +76,12 @@ class AFIPAdapter:
             imp_trib=0.00,
             imp_op_ex=0.00,
             fecha_cbte=data.cbte_fch,
+            fecha_serv_desde=data.fecha_serv_desde,
+            fecha_serv_hasta=data.fecha_serv_hasta,
+            fecha_venc_pago=data.fecha_venc_pago,
             moneda_id="PES",
             moneda_ctz="1.0000",
+            condicion_iva_receptor_id=data.condicion_iva_receptor_id,
         )
         ws.CAESolicitar()
 
