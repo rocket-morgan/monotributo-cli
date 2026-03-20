@@ -386,7 +386,7 @@ wheels = [
 
 [[package]]
 name = "pyafipws"
-version = "3.14.3145"
+version = "3.9.3145"
 source = { editable = "../pyafipws" }
 dependencies = [
     { name = "certifi" },

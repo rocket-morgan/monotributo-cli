@@ -7,6 +7,7 @@ WIP (wrapper inicial V2).
 
 ## Comandos
 - `monofact config-check`
+- `monofact auth-refresh`
 - `monofact invoice-last`
 - `monofact invoice-create`
 
@@ -14,10 +15,20 @@ WIP (wrapper inicial V2).
 - Requiere `uv`
 - Usa Python `3.14.3` vía `.python-version`
 - Instala `pyafipws` desde `../pyafipws` en modo editable
+- Si faltan `MONOFACT_TOKEN` y `MONOFACT_SIGN`, intenta obtenerlos desde `pyafipws` según `--env`
 
 ### Inicializar entorno
 ```bash
 uv sync --dev
+```
+
+### Autenticación desde pyafipws
+Con `--env homo` usa `../pyafipws/conf/homologacion.ini`.
+
+Con `--env prod` usa `../pyafipws/conf/produccion.ini`.
+
+```bash
+uv run monofact auth-refresh --env homo
 ```
 
 ### Verificar CLI
@@ -25,8 +36,6 @@ uv sync --dev
 MONOFACT_ENV=homo \
 MONOFACT_CUIT=20123456789 \
 MONOFACT_PTO_VTA=1 \
-MONOFACT_TOKEN=test-token \
-MONOFACT_SIGN=test-sign \
 uv run monofact config-check
 ```
 

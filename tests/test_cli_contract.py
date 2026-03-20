@@ -49,6 +49,7 @@ def _base_env(tmp_path: Path):
         "MONOFACT_TOKEN": "token_ok",
         "MONOFACT_SIGN": "sign_ok",
         "MONOFACT_DB_PATH": str(tmp_path / "monofact.db"),
+        "MONOFACT_PYAFIPWS_DIR": str(tmp_path / "missing_pyafipws"),
     }
 
 
@@ -169,6 +170,7 @@ def test_contract_validation_error_shape(tmp_path):
         "MONOFACT_TOKEN": "",
         "MONOFACT_SIGN": "",
         "MONOFACT_DB_PATH": str(tmp_path / "monofact.db"),
+        "MONOFACT_PYAFIPWS_DIR": str(tmp_path / "missing_pyafipws"),
     }
     res = runner.invoke(main, ["config-check"], env=env)
 

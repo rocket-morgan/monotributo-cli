@@ -7,6 +7,7 @@
 Comandos principales:
 
 - `monofact config-check`
+- `monofact auth-refresh`
 - `monofact invoice-last`
 - `monofact invoice-create`
 
@@ -33,6 +34,7 @@ Setup actual:
 - lockfile: `uv.lock`
 - `pyafipws` se instala desde el checkout local `../pyafipws`
 - `pyafipws` está configurado como dependencia editable en `pyproject.toml`
+- si faltan `token/sign`, el CLI intenta resolverlos desde `pyafipws`
 
 Comando de bootstrap:
 
@@ -60,20 +62,32 @@ uv run python -c "from pyafipws.wsfev1 import WSFEv1; print('WSFEv1 import ok')"
 
 ## Cómo funciona
 
+Resolución de credenciales:
+
+1. Si `MONOFACT_TOKEN` y `MONOFACT_SIGN` están presentes, se usan tal cual.
+2. Si faltan, el CLI busca `pyafipws` en `MONOFACT_PYAFIPWS_DIR`.
+3. Según `env`, usa:
+   - `homo` -> `conf/homologacion.ini`
+   - `prod` -> `conf/produccion.ini`
+4. Llama `WSAA.Autenticar(...)`.
+5. Reutiliza el TA cacheado en `pyafipws/cache/TA-*.xml` y lo renueva si hace falta.
+
 Flujo de `invoice-last`:
 
 1. `cli.py` carga settings desde flags/env.
-2. Instancia `AFIPAdapter`.
-3. `AFIPAdapter` importa `WSFEv1`, conecta al WSDL y consulta el último comprobante.
-4. El CLI devuelve JSON a stdout.
+2. Resuelve `token/sign` manualmente o vía `pyafipws`.
+3. Instancia `AFIPAdapter`.
+4. `AFIPAdapter` importa `WSFEv1`, conecta al WSDL y consulta el último comprobante.
+5. El CLI devuelve JSON a stdout.
 
 Flujo de `invoice-create`:
 
 1. `cli.py` valida `imp_total` y completa `cbte_fch` si falta.
 2. Construye `InvoiceInput`.
-3. `AFIPAdapter.emit_factura_c()` consulta último comprobante, calcula el siguiente y llama `CrearFactura()` + `CAESolicitar()`.
-4. `storage.py` persiste request y response en SQLite.
-5. El CLI devuelve JSON con `record_id`.
+3. Resuelve `token/sign` manualmente o vía `pyafipws`.
+4. `AFIPAdapter.emit_factura_c()` consulta último comprobante, calcula el siguiente y llama `CrearFactura()` + `CAESolicitar()`.
+5. `storage.py` persiste request y response en SQLite.
+6. El CLI devuelve JSON con `record_id`.
 
 Persistencia:
 
@@ -92,6 +106,7 @@ Las variables soportadas hoy son:
 - `MONOFACT_TOKEN`
 - `MONOFACT_SIGN`
 - `MONOFACT_DB_PATH`
+- `MONOFACT_PYAFIPWS_DIR`
 - `MONOFACT_WSFE_HOMO`
 - `MONOFACT_WSFE_PROD`
 
@@ -102,7 +117,7 @@ Template base: `.env.example`
 Punto clave:
 
 - `config-check` no necesita importar `pyafipws`
-- `invoice-last` y `invoice-create` sí necesitan `pyafipws`
+- `auth-refresh`, `invoice-last` e `invoice-create` usan `pyafipws` si faltan `token/sign`
 
 El CLI no levanta `pyafipws` como proceso aparte y no consume Docker ni HTTP intermedio. Todo corre dentro del mismo proceso Python.
 
@@ -116,7 +131,7 @@ uv run pytest -q
 
 Estado conocido al momento de escribir este archivo:
 
-- `15 passed`
+- `18 passed`
 
 Smoke tests útiles:
 
@@ -125,11 +140,13 @@ uv run python -m monofact.cli --help
 ```
 
 ```bash
+uv run monofact auth-refresh --env homo
+```
+
+```bash
 MONOFACT_ENV=homo \
 MONOFACT_CUIT=20123456789 \
 MONOFACT_PTO_VTA=1 \
-MONOFACT_TOKEN=test-token \
-MONOFACT_SIGN=test-sign \
 uv run monofact config-check
 ```
 
@@ -159,6 +176,11 @@ No cubren:
 ## Cómo probar integración real
 
 Necesitás `token` y `sign` válidos, además de `CUIT` y `pto_vta` correctos.
+
+Si no querés pasar `token/sign` a mano, el camino preferido ahora es:
+
+1. `uv run monofact auth-refresh --env homo`
+2. `uv run monofact invoice-last --env homo`
 
 Ejemplos:
 

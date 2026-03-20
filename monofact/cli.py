@@ -7,6 +7,7 @@ from decimal import Decimal
 import click
 
 from .afip_adapter import AFIPAdapter, AFIPAdapterError, InvoiceInput
+from .auth import AuthError, inspect_auth, load_pyafipws_profile, resolve_auth_credentials
 from .config import load_settings
 from .storage import connect, save_invoice
 
@@ -34,10 +35,10 @@ def config_check(env, cuit, pto_vta, token, sign):
         errors.append("CUIT inválido")
     if s.pto_vta <= 0:
         errors.append("Punto de venta inválido")
-    if not s.token:
-        errors.append("Falta token")
-    if not s.sign:
-        errors.append("Falta sign")
+    try:
+        inspect_auth(s)
+    except AuthError as exc:
+        errors.append(str(exc))
 
     if errors:
         _print({"ok": False, "error_type": "validation", "errors": errors}, 2)
@@ -51,6 +52,31 @@ def config_check(env, cuit, pto_vta, token, sign):
     })
 
 
+@main.command("auth-refresh")
+@click.option("--env", type=click.Choice(["homo", "prod"]))
+@click.option("--force/--no-force", default=False)
+def auth_refresh(env, force):
+    s = load_settings(env=env)
+    try:
+        profile = load_pyafipws_profile(s)
+        creds = resolve_auth_credentials(s, force_refresh=force)
+        _print({
+            "ok": True,
+            "env": s.env,
+            "profile": profile.profile_name,
+            "pyafipws_dir": s.pyafipws_dir,
+            "ta_path": str(creds.ta_path) if creds.ta_path else None,
+            "expires_at": creds.expiration_time,
+            "forced": force,
+        })
+    except AuthError as exc:
+        _print({"ok": False, "error_type": "validation", "message": str(exc)}, 2)
+    except AFIPAdapterError as exc:
+        _print({"ok": False, "error_type": "transport", "message": str(exc)}, 3)
+    except Exception as exc:
+        _print({"ok": False, "error_type": "unexpected", "message": str(exc)}, 5)
+
+
 @main.command("invoice-last")
 @click.option("--env", type=click.Choice(["homo", "prod"]))
 @click.option("--cuit", type=int)
@@ -61,9 +87,12 @@ def config_check(env, cuit, pto_vta, token, sign):
 def invoice_last(env, cuit, pto_vta, tipo_comp, token, sign):
     s = load_settings(env=env, cuit=cuit, pto_vta=pto_vta, tipo_comp=tipo_comp, token=token, sign=sign)
     try:
-        afip = AFIPAdapter(wsfe_url=s.wsfe_url, cuit=s.cuit, token=s.token, sign=s.sign)
+        creds = resolve_auth_credentials(s)
+        afip = AFIPAdapter(wsfe_url=s.wsfe_url, cuit=s.cuit, token=creds.token, sign=creds.sign)
         last = afip.get_last_cbte(s.tipo_comp_factura_c, s.pto_vta)
         _print({"ok": True, "last": last, "tipo_comp": s.tipo_comp_factura_c, "pto_vta": s.pto_vta})
+    except AuthError as exc:
+        _print({"ok": False, "error_type": "validation", "message": str(exc)}, 2)
     except AFIPAdapterError as exc:
         _print({"ok": False, "error_type": "transport", "message": str(exc)}, 3)
     except Exception as exc:
@@ -116,12 +145,15 @@ def invoice_create(env, cuit, pto_vta, tipo_comp, doc_tipo, doc_nro, imp_total, 
     }
 
     try:
-        afip = AFIPAdapter(wsfe_url=s.wsfe_url, cuit=s.cuit, token=s.token, sign=s.sign)
+        creds = resolve_auth_credentials(s)
+        afip = AFIPAdapter(wsfe_url=s.wsfe_url, cuit=s.cuit, token=creds.token, sign=creds.sign)
         result = afip.emit_factura_c(req)
         conn = connect(s.db_path)
         rid = save_invoice(conn, payload, result)
         result["record_id"] = rid
         _print(result, 0 if result.get("ok") else 4)
+    except AuthError as exc:
+        _print({"ok": False, "error_type": "validation", "message": str(exc)}, 2)
     except AFIPAdapterError as exc:
         _print({"ok": False, "error_type": "transport", "message": str(exc)}, 3)
     except Exception as exc:
