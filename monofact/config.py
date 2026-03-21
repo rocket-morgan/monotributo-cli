@@ -22,6 +22,7 @@ class Settings:
     token: str
     sign: str
     db_path: str
+    cache_dir: str
     pyafipws_dir: str
     wsfe_homo: str
     wsfe_prod: str
@@ -50,6 +51,7 @@ def load_settings(
     token: str | None = None,
     sign: str | None = None,
     db_path: str | None = None,
+    cache_dir: str | None = None,
     pyafipws_dir: str | None = None,
 ) -> Settings:
     _autoload_dotenv()
@@ -62,6 +64,7 @@ def load_settings(
         token=token if token is not None else os.getenv("MONOFACT_TOKEN", ""),
         sign=sign if sign is not None else os.getenv("MONOFACT_SIGN", ""),
         db_path=db_path or os.getenv("MONOFACT_DB_PATH", "./monofact.db"),
+        cache_dir=cache_dir or os.getenv("MONOFACT_CACHE_DIR", "./cache"),
         pyafipws_dir=pyafipws_dir or os.getenv("MONOFACT_PYAFIPWS_DIR", _default_pyafipws_dir()),
         wsfe_homo=os.getenv("MONOFACT_WSFE_HOMO", "https://wswhomo.afip.gov.ar/wsfev1/service.asmx?WSDL"),
         wsfe_prod=os.getenv("MONOFACT_WSFE_PROD", "https://servicios1.afip.gov.ar/wsfev1/service.asmx?WSDL"),

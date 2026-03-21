@@ -10,6 +10,8 @@ Comandos principales:
 - `monofact auth-refresh`
 - `monofact invoice-last`
 - `monofact invoice-create`
+- `monofact invoice-list`
+- `monofact invoice-show`
 
 El entrypoint del CLI está en `monofact/cli.py`.
 
@@ -18,10 +20,11 @@ El entrypoint del CLI está en `monofact/cli.py`.
 - `monofact/cli.py`: comandos Click, validaciones, códigos de salida, salida JSON.
 - `monofact/config.py`: carga de configuración desde flags y variables de entorno.
 - `monofact/afip_adapter.py`: wrapper sobre `pyafipws.wsfev1.WSFEv1`.
-- `monofact/storage.py`: persistencia SQLite de requests/responses.
+- `monofact/storage.py`: persistencia SQLite y queries locales de listado/detalle.
 - `tests/test_cli_contract.py`: contrato de payloads JSON del CLI.
 - `tests/test_cli_integration.py`: tests de integración del CLI usando fake adapter.
 - `tests/test_afip_adapter.py`: tests unitarios del adapter con fake WS.
+- `scripts/smoke_homo.sh`: smoke test real de homologación.
 - `docs/specs-monotributo-v1.md` y `docs/specs-monotributo-v2.md`: specs del proyecto.
 
 ## Dependencias y entorno
@@ -91,11 +94,31 @@ Flujo de `invoice-create`:
 5. `storage.py` persiste request y response en SQLite.
 6. El CLI devuelve JSON con `record_id`.
 
+Flujo de `invoice-list`:
+
+1. `cli.py` valida que venga `--cbte-nro` o bien `--from` + `--to`.
+2. Carga settings desde flags/env para resolver `env`, `pto_vta` y `tipo_comp`.
+3. `storage.py` consulta SQLite local.
+4. El CLI devuelve JSON resumido con `count` e `items`.
+
+Flujo de `invoice-show`:
+
+1. `cli.py` resuelve `env`, `pto_vta` y `tipo_comp`.
+2. Busca primero el comprobante en SQLite local.
+3. Intenta consultar AFIP con `AFIPAdapter.get_invoice_detail()` usando `CompConsultar`.
+4. Si AFIP responde, devuelve `source = "afip"` y agrega `local` si existe registro persistido.
+5. Si AFIP falla pero existe registro local, devuelve `source = "local"` con `local_fallback = true`.
+
 Defaults relevantes al emitir:
 
 - si `doc_tipo == 99`, el CLI completa `condicion_iva_receptor_id = 5` (Consumidor Final)
 - si `concepto in (2, 3)`, completa `fecha_serv_desde` y `fecha_serv_hasta` con `cbte_fch` salvo que se pasen por parámetro
 - si `concepto in (2, 3)`, completa `fecha_venc_pago` con la fecha actual de ejecución del comando
+- `--doc-tipo` acepta aliases locales:
+  - `dni` -> `96`
+  - `cuit` -> `80`
+  - `cuil` -> `86`
+  - `consumidor-final` y `cf` -> `99`
 
 Persistencia:
 
@@ -147,7 +170,7 @@ uv run pytest -q
 
 Estado conocido al momento de escribir este archivo:
 
-- `29 passed`
+- `41 passed`
 
 Smoke tests útiles:
 
@@ -166,6 +189,22 @@ MONOFACT_PTO_VTA=2 \
 uv run monofact config-check
 ```
 
+```bash
+uv run monofact invoice-list --env homo --cbte-nro 3
+```
+
+```bash
+uv run monofact invoice-show --env homo --cbte-nro 3
+```
+
+Smoke end-to-end real en homologación:
+
+```bash
+./scripts/smoke_homo.sh
+```
+
+Nota: `scripts/smoke_homo.sh` emite una factura real en `homo`.
+
 Import real de `pyafipws`:
 
 ```bash
@@ -182,6 +221,9 @@ Cubren:
 - códigos de salida
 - persistencia básica
 - comportamiento del adapter con doubles/fakes
+- aliases de `doc_tipo`
+- listado local por número y rango de fechas
+- detalle con AFIP primero y fallback local
 
 No cubren:
 
@@ -203,7 +245,7 @@ Comando real validado para emitir en homologación:
 ```bash
 uv run monofact invoice-create \
   --env homo \
-  --doc-tipo 99 \
+  --doc-tipo consumidor-final \
   --doc-nro 0 \
   --imp-total 1000.00 \
   --cbte-fch 20260320 \

@@ -9,7 +9,24 @@ import click
 from .afip_adapter import AFIPAdapter, AFIPAdapterError, InvoiceInput
 from .auth import AuthError, inspect_auth, load_pyafipws_profile, resolve_auth_credentials
 from .config import load_settings
-from .storage import connect, save_invoice
+from .storage import (
+    connect,
+    get_invoice_by_cbte_nro,
+    list_invoices_by_cbte_nro,
+    list_invoices_by_date_range,
+    save_invoice,
+)
+
+
+DOC_TIPO_ALIASES = {
+    "dni": 96,
+    "cuit": 80,
+    "cuil": 86,
+    "consumidor-final": 99,
+    "consumidor_final": 99,
+    "consumidorfinal": 99,
+    "cf": 99,
+}
 
 
 def _print(payload: dict, code: int = 0):
@@ -28,6 +45,65 @@ def _validate_runtime_settings(settings) -> list[str]:
     except AuthError as exc:
         errors.append(str(exc))
     return errors
+
+
+def _validate_local_lookup_settings(settings) -> list[str]:
+    errors = []
+    if settings.pto_vta <= 0:
+        errors.append("Punto de venta inválido")
+    if settings.tipo_comp_factura_c <= 0:
+        errors.append("Tipo de comprobante inválido")
+    return errors
+
+
+def _normalize_alias(value: str) -> str:
+    return value.strip().lower().replace("_", "-").replace(" ", "-")
+
+
+def _resolve_doc_tipo(value: str) -> int:
+    raw = value.strip()
+    if raw.isdigit():
+        return int(raw)
+    alias = _normalize_alias(raw)
+    if alias in DOC_TIPO_ALIASES:
+        return DOC_TIPO_ALIASES[alias]
+    valid_values = ", ".join(sorted(set(DOC_TIPO_ALIASES)))
+    raise click.BadParameter(f"doc_tipo inválido. Usá un código AFIP o uno de: {valid_values}")
+
+
+def _validate_yyyymmdd(value: str, *, field_name: str) -> str:
+    try:
+        dt.datetime.strptime(value, "%Y%m%d")
+    except ValueError as exc:
+        raise click.BadParameter(f"{field_name} debe tener formato YYYYMMDD") from exc
+    return value
+
+
+def _build_list_filters(cbte_nro: int | None, date_from: str | None, date_to: str | None) -> tuple[str, dict]:
+    if cbte_nro is not None and (date_from or date_to):
+        raise click.BadParameter("Usá --cbte-nro o --from/--to, no ambos a la vez")
+    if cbte_nro is None and not date_from and not date_to:
+        raise click.BadParameter("Debés indicar --cbte-nro o bien --from y --to")
+    if cbte_nro is not None:
+        return "cbte_nro", {"cbte_nro": cbte_nro}
+    if not date_from or not date_to:
+        raise click.BadParameter("Para buscar por fechas tenés que indicar --from y --to")
+    validated_from = _validate_yyyymmdd(date_from, field_name="from")
+    validated_to = _validate_yyyymmdd(date_to, field_name="to")
+    if validated_from > validated_to:
+        raise click.BadParameter("--from no puede ser mayor que --to")
+    return "date_range", {"from": validated_from, "to": validated_to}
+
+
+def _build_afip_adapter(settings):
+    creds = resolve_auth_credentials(settings)
+    return AFIPAdapter(
+        wsfe_url=settings.wsfe_url,
+        cuit=settings.cuit,
+        token=creds.token,
+        sign=creds.sign,
+        cache=settings.cache_dir,
+    )
 
 
 def _resolve_condicion_iva_receptor_id(doc_tipo: int, explicit_value: int | None) -> int | None:
@@ -115,8 +191,7 @@ def invoice_last(env, cuit, pto_vta, tipo_comp, token, sign):
     if errors:
         _print({"ok": False, "error_type": "validation", "errors": errors}, 2)
     try:
-        creds = resolve_auth_credentials(s)
-        afip = AFIPAdapter(wsfe_url=s.wsfe_url, cuit=s.cuit, token=creds.token, sign=creds.sign)
+        afip = _build_afip_adapter(s)
         last = afip.get_last_cbte(s.tipo_comp_factura_c, s.pto_vta)
         _print({"ok": True, "last": last, "tipo_comp": s.tipo_comp_factura_c, "pto_vta": s.pto_vta})
     except AuthError as exc:
@@ -132,7 +207,7 @@ def invoice_last(env, cuit, pto_vta, tipo_comp, token, sign):
 @click.option("--cuit", type=int)
 @click.option("--pto-vta", type=int)
 @click.option("--tipo-comp", type=int)
-@click.option("--doc-tipo", type=int, required=True)
+@click.option("--doc-tipo", required=True)
 @click.option("--doc-nro", type=int, required=True)
 @click.option("--imp-total", type=Decimal, required=True)
 @click.option("--cbte-fch", type=str)
@@ -158,12 +233,32 @@ def invoice_create(
     token,
     sign,
 ):
+    try:
+        doc_tipo = _resolve_doc_tipo(doc_tipo)
+    except click.BadParameter as exc:
+        _print({"ok": False, "error_type": "validation", "errors": [exc.message]}, 2)
+
     s = load_settings(env=env, cuit=cuit, pto_vta=pto_vta, tipo_comp=tipo_comp, token=token, sign=sign)
     resolved_cond_iva_receptor_id = _resolve_condicion_iva_receptor_id(doc_tipo, cond_iva_receptor_id)
 
     errors = _validate_runtime_settings(s)
     if imp_total <= 0:
         errors.append("imp_total debe ser > 0")
+    if cbte_fch:
+        try:
+            _validate_yyyymmdd(cbte_fch, field_name="cbte_fch")
+        except click.BadParameter as exc:
+            errors.append(exc.message)
+    if fecha_serv_desde:
+        try:
+            _validate_yyyymmdd(fecha_serv_desde, field_name="fecha_serv_desde")
+        except click.BadParameter as exc:
+            errors.append(exc.message)
+    if fecha_serv_hasta:
+        try:
+            _validate_yyyymmdd(fecha_serv_hasta, field_name="fecha_serv_hasta")
+        except click.BadParameter as exc:
+            errors.append(exc.message)
     if errors:
         _print({"ok": False, "error_type": "validation", "errors": errors}, 2)
 
@@ -210,8 +305,7 @@ def invoice_create(
     }
 
     try:
-        creds = resolve_auth_credentials(s)
-        afip = AFIPAdapter(wsfe_url=s.wsfe_url, cuit=s.cuit, token=creds.token, sign=creds.sign)
+        afip = _build_afip_adapter(s)
         result = afip.emit_factura_c(req)
         conn = connect(s.db_path)
         rid = save_invoice(conn, payload, result)
@@ -223,6 +317,128 @@ def invoice_create(
         _print({"ok": False, "error_type": "transport", "message": str(exc)}, 3)
     except Exception as exc:
         _print({"ok": False, "error_type": "unexpected", "message": str(exc)}, 5)
+
+
+@main.command("invoice-list")
+@click.option("--env", type=click.Choice(["homo", "prod"]))
+@click.option("--pto-vta", type=int)
+@click.option("--tipo-comp", type=int)
+@click.option("--cbte-nro", type=int)
+@click.option("--from", "date_from", type=str)
+@click.option("--to", "date_to", type=str)
+def invoice_list(env, pto_vta, tipo_comp, cbte_nro, date_from, date_to):
+    try:
+        filter_kind, filters = _build_list_filters(cbte_nro, date_from, date_to)
+    except click.BadParameter as exc:
+        _print({"ok": False, "error_type": "validation", "errors": [exc.message]}, 2)
+
+    s = load_settings(env=env, pto_vta=pto_vta, tipo_comp=tipo_comp)
+    errors = _validate_local_lookup_settings(s)
+    if errors:
+        _print({"ok": False, "error_type": "validation", "errors": errors}, 2)
+
+    conn = connect(s.db_path)
+    if filter_kind == "cbte_nro":
+        items = list_invoices_by_cbte_nro(
+            conn,
+            env=s.env,
+            pto_vta=s.pto_vta,
+            tipo_comp=s.tipo_comp_factura_c,
+            cbte_nro=filters["cbte_nro"],
+        )
+    else:
+        items = list_invoices_by_date_range(
+            conn,
+            env=s.env,
+            pto_vta=s.pto_vta,
+            tipo_comp=s.tipo_comp_factura_c,
+            date_from=filters["from"],
+            date_to=filters["to"],
+        )
+
+    _print({
+        "ok": True,
+        "count": len(items),
+        "env": s.env,
+        "pto_vta": s.pto_vta,
+        "tipo_comp": s.tipo_comp_factura_c,
+        "filters": filters,
+        "items": items,
+    })
+
+
+@main.command("invoice-show")
+@click.option("--env", type=click.Choice(["homo", "prod"]))
+@click.option("--cuit", type=int)
+@click.option("--pto-vta", type=int)
+@click.option("--tipo-comp", type=int)
+@click.option("--cbte-nro", type=int, required=True)
+@click.option("--token")
+@click.option("--sign")
+def invoice_show(env, cuit, pto_vta, tipo_comp, cbte_nro, token, sign):
+    s = load_settings(env=env, cuit=cuit, pto_vta=pto_vta, tipo_comp=tipo_comp, token=token, sign=sign)
+    errors = _validate_local_lookup_settings(s)
+    if cbte_nro <= 0:
+        errors.append("cbte_nro debe ser > 0")
+    if errors:
+        _print({"ok": False, "error_type": "validation", "errors": errors}, 2)
+
+    conn = connect(s.db_path)
+    local_detail = get_invoice_by_cbte_nro(
+        conn,
+        env=s.env,
+        pto_vta=s.pto_vta,
+        tipo_comp=s.tipo_comp_factura_c,
+        cbte_nro=cbte_nro,
+    )
+
+    afip_detail = None
+    afip_error = None
+    try:
+        afip = _build_afip_adapter(s)
+        afip_detail = afip.get_invoice_detail(s.tipo_comp_factura_c, s.pto_vta, cbte_nro)
+    except (AuthError, AFIPAdapterError, Exception) as exc:
+        afip_error = str(exc)
+
+    if afip_detail is not None:
+        payload = {
+            "ok": True,
+            "source": "afip",
+            "local_fallback": False,
+            "env": s.env,
+            "pto_vta": s.pto_vta,
+            "tipo_comp": s.tipo_comp_factura_c,
+            "cbte_nro": cbte_nro,
+            "afip": afip_detail,
+        }
+        if local_detail is not None:
+            payload["local"] = local_detail
+        _print(payload)
+
+    if local_detail is not None:
+        _print({
+            "ok": True,
+            "source": "local",
+            "local_fallback": True,
+            "env": s.env,
+            "pto_vta": s.pto_vta,
+            "tipo_comp": s.tipo_comp_factura_c,
+            "cbte_nro": cbte_nro,
+            "afip": None,
+            "afip_error": afip_error,
+            "local": local_detail,
+        })
+
+    _print({
+        "ok": False,
+        "error_type": "not_found",
+        "message": "Factura no encontrada en AFIP ni en la base local.",
+        "env": s.env,
+        "pto_vta": s.pto_vta,
+        "tipo_comp": s.tipo_comp_factura_c,
+        "cbte_nro": cbte_nro,
+        "afip_error": afip_error,
+    }, 4)
 
 
 if __name__ == "__main__":
