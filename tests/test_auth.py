@@ -6,7 +6,7 @@ from click.testing import CliRunner
 
 import monofact.auth as auth_mod
 import monofact.cli as cli_mod
-from monofact.auth import inspect_auth, resolve_auth_credentials
+from monofact.auth import AuthTransportError, inspect_auth, resolve_auth_credentials
 from monofact.cli import main
 from monofact.config import _load_dotenv_once, load_settings
 
@@ -111,7 +111,7 @@ def test_auth_refresh_command_returns_profile_metadata(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cli_mod,
         "resolve_auth_credentials",
-        lambda settings, force_refresh=False: SimpleNamespace(
+        lambda settings, force_refresh=False, allow_manual_credentials=True: SimpleNamespace(
             ta_path=tmp_path / "pyafipws" / "cache" / "TA-test.xml",
             expiration_time="2026-03-21T05:51:48-03:00",
         ),
@@ -145,6 +145,80 @@ def test_path_like_token_and_sign_fall_back_to_pyafipws(monkeypatch, tmp_path):
     )
 
     assert inspect_auth(settings) == ("pyafipws", "homologacion")
+
+
+def test_manual_credentials_with_slashes_are_not_treated_as_paths(tmp_path):
+    settings = load_settings(
+        env="homo",
+        cuit=20123456789,
+        pto_vta=1,
+        token="PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9InllcyI/Pgo8c3NvPg==",
+        sign="J2ecVb+eGLBw0ksIN6LC7lLz62mQhUXG3ySwdMbXjW2b9nbHN9cgIyYHMvlBW3JlDNSGwd8Uw+1pPvGSUX/FLdrgNqKX4JHd4A2AbDZSdU+YAoPEwo=",
+        pyafipws_dir=str(tmp_path / "missing"),
+    )
+
+    assert inspect_auth(settings) == ("manual", None)
+
+
+def test_resolve_auth_credentials_rejects_empty_wsaa_response(monkeypatch, tmp_path):
+    pyafipws_dir = _make_pyafipws_profile(tmp_path, "homologacion")
+    settings = load_settings(
+        env="homo",
+        cuit=20123456789,
+        pto_vta=1,
+        token="",
+        sign="",
+        pyafipws_dir=str(pyafipws_dir),
+    )
+
+    class FakeWSAA:
+        def __init__(self):
+            self.Token = ""
+            self.Sign = ""
+            self.Excepcion = "fallo wsaa"
+
+        def Autenticar(self, *args, **kwargs):
+            return ""
+
+        def ObtenerTagXml(self, tag):
+            raise RuntimeError("sin xml")
+
+    monkeypatch.setattr(auth_mod, "_get_wsaa_class", lambda: FakeWSAA)
+
+    try:
+        resolve_auth_credentials(settings)
+    except AuthTransportError as exc:
+        assert str(exc) == "fallo wsaa"
+    else:
+        raise AssertionError("resolve_auth_credentials debería fallar cuando WSAA no entrega token/sign")
+
+
+def test_auth_refresh_ignores_manual_env_credentials(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        cli_mod,
+        "load_pyafipws_profile",
+        lambda settings: SimpleNamespace(profile_name="homologacion"),
+    )
+    captured = {}
+
+    def fake_resolve_auth_credentials(settings, force_refresh=False, allow_manual_credentials=True):
+        captured["allow_manual_credentials"] = allow_manual_credentials
+        return SimpleNamespace(
+            ta_path=tmp_path / "pyafipws" / "cache" / "TA-test.xml",
+            expiration_time="2026-03-21T05:51:48-03:00",
+        )
+
+    monkeypatch.setattr(cli_mod, "resolve_auth_credentials", fake_resolve_auth_credentials)
+
+    runner = CliRunner()
+    res = runner.invoke(
+        main,
+        ["auth-refresh", "--env", "homo"],
+        env={"MONOFACT_TOKEN": "manual-token", "MONOFACT_SIGN": "manual-sign"},
+    )
+
+    assert res.exit_code == 0
+    assert captured["allow_manual_credentials"] is False
 
 
 def test_config_check_autoloads_dotenv(monkeypatch, tmp_path):
