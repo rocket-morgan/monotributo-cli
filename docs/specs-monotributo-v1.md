@@ -98,10 +98,11 @@ Parámetros sugeridos:
 - `--cbte-fch <YYYYMMDD>` (default: hoy)
 - `--token <str>` (opcional, si no viene de config)
 - `--sign <str>` (opcional, si no viene de config)
-- `--out json` (default)
+- `--format [json|yaml|yml]` (default: `json`)
 
 Salida:
-- JSON en stdout con estado, CAE, vencimiento, número emitido y errores/observaciones.
+- `json` en stdout para scripting
+- `yaml`/`yml` en stdout con el mismo payload, pero en formato más legible para humanos
 
 #### `monofact invoice:last`
 Consulta último comprobante autorizado.

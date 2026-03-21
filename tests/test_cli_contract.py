@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import yaml
 from click.testing import CliRunner
 
 from monofact.cli import main
@@ -181,6 +182,26 @@ def test_contract_config_check_shape(tmp_path):
     assert data["ok"] is True
 
 
+def test_contract_default_format_is_json(tmp_path):
+    runner = CliRunner()
+    res = runner.invoke(main, ["config-check"], env=_base_env(tmp_path))
+
+    assert res.exit_code == 0
+    assert res.output.lstrip().startswith("{")
+    data = json.loads(res.output)
+    assert data["ok"] is True
+
+
+def test_contract_config_check_yaml_shape(tmp_path):
+    runner = CliRunner()
+    res = runner.invoke(main, ["--format", "yaml", "config-check"], env=_base_env(tmp_path))
+
+    assert res.exit_code == 0
+    data = yaml.safe_load(res.output)
+    assert set(data.keys()) == {"ok", "env", "cuit", "pto_vta", "wsfe_url"}
+    assert data["ok"] is True
+
+
 def test_contract_validation_error_shape(tmp_path):
     runner = CliRunner()
     env = {
@@ -196,6 +217,26 @@ def test_contract_validation_error_shape(tmp_path):
 
     assert res.exit_code == 2
     data = json.loads(res.output)
+    assert set(data.keys()) == {"ok", "error_type", "errors"}
+    assert data["error_type"] == "validation"
+    assert isinstance(data["errors"], list)
+
+
+def test_contract_validation_error_yaml_shape(tmp_path):
+    runner = CliRunner()
+    env = {
+        "MONOFACT_ENV": "homo",
+        "MONOFACT_CUIT": "0",
+        "MONOFACT_PTO_VTA": "0",
+        "MONOFACT_TOKEN": "",
+        "MONOFACT_SIGN": "",
+        "MONOFACT_DB_PATH": str(tmp_path / "monofact.db"),
+        "MONOFACT_PYAFIPWS_DIR": str(tmp_path / "missing_pyafipws"),
+    }
+    res = runner.invoke(main, ["--format", "yaml", "config-check"], env=env)
+
+    assert res.exit_code == 2
+    data = yaml.safe_load(res.output)
     assert set(data.keys()) == {"ok", "error_type", "errors"}
     assert data["error_type"] == "validation"
     assert isinstance(data["errors"], list)
@@ -287,3 +328,18 @@ def test_contract_invoice_show_shape(monkeypatch, tmp_path):
     data = json.loads(res.output)
     assert set(data.keys()) == {"ok", "source", "local_fallback", "env", "pto_vta", "tipo_comp", "cbte_nro", "afip", "local"}
     assert data["ok"] is True
+
+
+def test_contract_yml_alias_matches_yaml(monkeypatch, tmp_path):
+    import monofact.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "AFIPAdapter", FakeAFIPAdapter)
+    runner = CliRunner()
+    env = _base_env(tmp_path)
+
+    yaml_res = runner.invoke(main, ["--format", "yaml", "invoice-last"], env=env)
+    yml_res = runner.invoke(main, ["--format", "yml", "invoice-last"], env=env)
+
+    assert yaml_res.exit_code == 0
+    assert yml_res.exit_code == 0
+    assert yaml.safe_load(yaml_res.output) == yaml.safe_load(yml_res.output)

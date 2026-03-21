@@ -3,6 +3,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+import yaml
 from click.testing import CliRunner
 
 from monofact.cli import main
@@ -132,6 +133,19 @@ def test_invoice_last_ok(monkeypatch, tmp_path):
     runner = CliRunner()
     res = runner.invoke(main, ["invoice-last"], env=_base_env(tmp_path))
     data = json.loads(res.output)
+
+    assert res.exit_code == 0
+    assert data["ok"] is True
+    assert data["last"] == 123
+
+
+def test_invoice_last_yaml_success(monkeypatch, tmp_path):
+    import monofact.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "AFIPAdapter", FakeAFIPAdapter)
+    runner = CliRunner()
+    res = runner.invoke(main, ["--format", "yaml", "invoice-last"], env=_base_env(tmp_path))
+    data = yaml.safe_load(res.output)
 
     assert res.exit_code == 0
     assert data["ok"] is True
@@ -472,6 +486,20 @@ def test_invoice_list_rejects_invalid_ranges(tmp_path):
     runner = CliRunner()
     res = runner.invoke(main, ["invoice-list", "--from", "20260302", "--to", "20260301"], env=_base_env(tmp_path))
     data = json.loads(res.output)
+
+    assert res.exit_code == 2
+    assert data["error_type"] == "validation"
+    assert "--from no puede ser mayor que --to" in data["errors"]
+
+
+def test_invoice_list_yaml_validation_error_preserves_exit_code(tmp_path):
+    runner = CliRunner()
+    res = runner.invoke(
+        main,
+        ["--format", "yaml", "invoice-list", "--from", "20260302", "--to", "20260301"],
+        env=_base_env(tmp_path),
+    )
+    data = yaml.safe_load(res.output)
 
     assert res.exit_code == 2
     assert data["error_type"] == "validation"

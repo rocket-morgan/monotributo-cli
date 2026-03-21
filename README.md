@@ -13,6 +13,14 @@ WIP (wrapper inicial V2).
 - `monofact invoice-list`
 - `monofact invoice-show`
 
+## Formato de salida
+- Por default el CLI responde en `json`
+- También podés pedir salida humana en `yaml` o `yml` con un flag global
+
+```bash
+uv run monofact --format yaml config-check
+```
+
 ## Setup local con uv
 - Requiere `uv`
 - Usa Python `3.14.3` vía `.python-version`
@@ -44,6 +52,13 @@ MONOFACT_PTO_VTA=2 \
 uv run monofact config-check
 ```
 
+```bash
+MONOFACT_ENV=homo \
+MONOFACT_CUIT=201231233 \
+MONOFACT_PTO_VTA=2 \
+uv run monofact --format yaml config-check
+```
+
 También funciona sin exportar nada si `.env` ya contiene `MONOFACT_ENV`, `MONOFACT_CUIT` y `MONOFACT_PTO_VTA`.
 
 ### Emitir en homologación
@@ -64,6 +79,16 @@ Para `--concepto 2` completa automáticamente:
 
 ```bash
 uv run monofact invoice-create \
+  --env homo \
+  --doc-tipo consumidor-final \
+  --doc-nro 0 \
+  --imp-total 1000.00 \
+  --cbte-fch 20260320 \
+  --concepto 2
+```
+
+```bash
+uv run monofact --format yaml invoice-create \
   --env homo \
   --doc-tipo consumidor-final \
   --doc-nro 0 \

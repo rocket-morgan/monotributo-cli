@@ -5,6 +5,7 @@ import json
 from decimal import Decimal
 
 import click
+import yaml
 
 from .afip_adapter import AFIPAdapter, AFIPAdapterError, InvoiceInput
 from .auth import AuthError, inspect_auth, load_pyafipws_profile, resolve_auth_credentials
@@ -29,8 +30,37 @@ DOC_TIPO_ALIASES = {
 }
 
 
+def _normalize_output_format(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized == "yml":
+        return "yaml"
+    return normalized
+
+
+def _get_output_format() -> str:
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return "json"
+    root = ctx.find_root()
+    if root.obj and "output_format" in root.obj:
+        return root.obj["output_format"]
+    return "json"
+
+
+def _serialize_payload(payload: dict) -> str:
+    output_format = _get_output_format()
+    if output_format == "yaml":
+        return yaml.safe_dump(
+            payload,
+            allow_unicode=True,
+            sort_keys=False,
+            default_flow_style=False,
+        ).rstrip()
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def _print(payload: dict, code: int = 0):
-    click.echo(json.dumps(payload, ensure_ascii=False))
+    click.echo(_serialize_payload(payload))
     raise SystemExit(code)
 
 
@@ -127,8 +157,19 @@ def _resolve_service_dates(
 
 
 @click.group()
-def main():
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["json", "yaml", "yml"], case_sensitive=False),
+    default="json",
+    show_default=True,
+    help="Formato de salida del CLI.",
+)
+@click.pass_context
+def main(ctx, output_format):
     """CLI MVP Factura C (Monotributo) sobre PyAfipWs."""
+    ctx.ensure_object(dict)
+    ctx.obj["output_format"] = _normalize_output_format(output_format)
 
 
 @main.command("config-check")
