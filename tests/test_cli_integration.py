@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 from click.testing import CliRunner
 
+from monofact.afip_adapter import InvoiceNotFoundError
 from monofact.cli import main
 
 
@@ -46,7 +47,9 @@ class FakeAFIPAdapter:
 
     def get_invoice_detail(self, tipo_comp, pto_vta, cbte_nro):
         if self.token in {"boom", "detail-fail"}:
-            raise RuntimeError("fallo transporte" if self.token == "boom" else "fallo detail")
+            if self.token == "detail-fail":
+                raise InvoiceNotFoundError("fallo detail")
+            raise RuntimeError("fallo transporte")
         return {
             "tipo_comp": tipo_comp,
             "pto_vta": pto_vta,
@@ -559,3 +562,23 @@ def test_invoice_show_not_found(monkeypatch, tmp_path):
     assert res.exit_code == 4
     assert data["ok"] is False
     assert data["error_type"] == "not_found"
+
+
+def test_invoice_show_returns_validation_error_when_auth_cannot_be_resolved(tmp_path):
+    runner = CliRunner()
+    env = {
+        "MONOFACT_ENV": "homo",
+        "MONOFACT_PTO_VTA": "2",
+        "MONOFACT_TIPO_COMP_FACTURA_C": "11",
+        "MONOFACT_DB_PATH": str(tmp_path / "monofact.db"),
+        "MONOFACT_PYAFIPWS_DIR": str(tmp_path / "missing_pyafipws"),
+        "MONOFACT_TOKEN": "",
+        "MONOFACT_SIGN": "",
+    }
+
+    res = runner.invoke(main, ["invoice-show", "--cbte-nro", "999"], env=env)
+    data = json.loads(res.output)
+
+    assert res.exit_code == 2
+    assert data["ok"] is False
+    assert data["error_type"] == "validation"

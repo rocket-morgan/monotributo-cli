@@ -14,6 +14,10 @@ class AuthError(Exception):
     pass
 
 
+class AuthTransportError(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class AuthProfile:
     profile_name: str
@@ -43,19 +47,25 @@ def _normalize_manual_credentials(token: str, sign: str) -> tuple[str, str]:
     return token, sign
 
 
-def inspect_auth(settings: Settings) -> tuple[str, str | None]:
+def inspect_auth(settings: Settings, *, allow_manual_credentials: bool = True) -> tuple[str, str | None]:
     token, sign = _normalize_manual_credentials(settings.token, settings.sign)
-    if token and sign:
+    if allow_manual_credentials and token and sign:
         return "manual", None
     if token or sign:
-        raise AuthError("MONOFACT_TOKEN y MONOFACT_SIGN deben venir juntos")
+        if allow_manual_credentials:
+            raise AuthError("MONOFACT_TOKEN y MONOFACT_SIGN deben venir juntos")
     profile = load_pyafipws_profile(settings)
     return "pyafipws", profile.profile_name
 
 
-def resolve_auth_credentials(settings: Settings, force_refresh: bool = False) -> AuthCredentials:
+def resolve_auth_credentials(
+    settings: Settings,
+    force_refresh: bool = False,
+    *,
+    allow_manual_credentials: bool = True,
+) -> AuthCredentials:
     token, sign = _normalize_manual_credentials(settings.token, settings.sign)
-    if token and sign:
+    if allow_manual_credentials and token and sign:
         return AuthCredentials(
             token=token,
             sign=sign,
@@ -64,7 +74,8 @@ def resolve_auth_credentials(settings: Settings, force_refresh: bool = False) ->
             ta_path=None,
         )
     if token or sign:
-        raise AuthError("MONOFACT_TOKEN y MONOFACT_SIGN deben venir juntos")
+        if allow_manual_credentials:
+            raise AuthError("MONOFACT_TOKEN y MONOFACT_SIGN deben venir juntos")
 
     profile = load_pyafipws_profile(settings)
     ta_path = _ta_path("wsfe", profile.cert_path, profile.key_path, profile.cache_dir)
@@ -92,9 +103,15 @@ def resolve_auth_credentials(settings: Settings, force_refresh: bool = False) ->
     except Exception:
         expiration_time = None
 
+    token = getattr(wsaa, "Token", "").strip()
+    sign = getattr(wsaa, "Sign", "").strip()
+    if not token or not sign:
+        message = getattr(wsaa, "Excepcion", "").strip() or "No se pudieron obtener credenciales desde WSAA."
+        raise AuthTransportError(message)
+
     return AuthCredentials(
-        token=wsaa.Token,
-        sign=wsaa.Sign,
+        token=token,
+        sign=sign,
         source="pyafipws",
         expiration_time=expiration_time,
         ta_path=ta_path,
@@ -162,9 +179,7 @@ def _looks_like_file_reference(value: str) -> bool:
     if not value:
         return False
     candidate = Path(value).expanduser()
-    if candidate.exists():
-        return True
-    if any(sep in value for sep in ("/", "\\")):
+    if candidate.is_file():
         return True
     return False
 

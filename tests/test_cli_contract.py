@@ -4,6 +4,7 @@ from pathlib import Path
 import yaml
 from click.testing import CliRunner
 
+from monofact.afip_adapter import InvoiceNotFoundError
 from monofact.cli import main
 
 
@@ -42,7 +43,7 @@ class FakeAFIPAdapter:
 
     def get_invoice_detail(self, tipo_comp, pto_vta, cbte_nro):
         if self.token == "detail-fail":
-            raise RuntimeError("fallo detail")
+            raise InvoiceNotFoundError("fallo detail")
         return {
             "tipo_comp": tipo_comp,
             "pto_vta": pto_vta,

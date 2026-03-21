@@ -26,6 +26,10 @@ class AFIPAdapterError(Exception):
     pass
 
 
+class InvoiceNotFoundError(AFIPAdapterError):
+    pass
+
+
 class AFIPAdapter:
     def __init__(self, wsfe_url: str, cuit: int, token: str, sign: str, cache: str = "./cache"):
         self.wsfe_url = wsfe_url
@@ -65,7 +69,7 @@ class AFIPAdapter:
             message = "No se pudo consultar el comprobante en AFIP."
             if errors:
                 message = " / ".join(str(err) for err in errors)
-            raise AFIPAdapterError(message)
+            raise InvoiceNotFoundError(message)
 
         return {
             "tipo_comp": int(factura.get("tipo_cbte") or tipo_comp),

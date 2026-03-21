@@ -7,8 +7,14 @@ from decimal import Decimal
 import click
 import yaml
 
-from .afip_adapter import AFIPAdapter, AFIPAdapterError, InvoiceInput
-from .auth import AuthError, inspect_auth, load_pyafipws_profile, resolve_auth_credentials
+from .afip_adapter import AFIPAdapter, AFIPAdapterError, InvoiceInput, InvoiceNotFoundError
+from .auth import (
+    AuthError,
+    AuthTransportError,
+    inspect_auth,
+    load_pyafipws_profile,
+    resolve_auth_credentials,
+)
 from .config import load_settings
 from .storage import (
     connect,
@@ -201,7 +207,7 @@ def auth_refresh(env, force):
     s = load_settings(env=env)
     try:
         profile = load_pyafipws_profile(s)
-        creds = resolve_auth_credentials(s, force_refresh=force)
+        creds = resolve_auth_credentials(s, force_refresh=force, allow_manual_credentials=False)
         _print({
             "ok": True,
             "env": s.env,
@@ -213,6 +219,8 @@ def auth_refresh(env, force):
         })
     except AuthError as exc:
         _print({"ok": False, "error_type": "validation", "message": str(exc)}, 2)
+    except AuthTransportError as exc:
+        _print({"ok": False, "error_type": "transport", "message": str(exc)}, 3)
     except AFIPAdapterError as exc:
         _print({"ok": False, "error_type": "transport", "message": str(exc)}, 3)
     except Exception as exc:
@@ -237,6 +245,8 @@ def invoice_last(env, cuit, pto_vta, tipo_comp, token, sign):
         _print({"ok": True, "last": last, "tipo_comp": s.tipo_comp_factura_c, "pto_vta": s.pto_vta})
     except AuthError as exc:
         _print({"ok": False, "error_type": "validation", "message": str(exc)}, 2)
+    except AuthTransportError as exc:
+        _print({"ok": False, "error_type": "transport", "message": str(exc)}, 3)
     except AFIPAdapterError as exc:
         _print({"ok": False, "error_type": "transport", "message": str(exc)}, 3)
     except Exception as exc:
@@ -354,6 +364,8 @@ def invoice_create(
         _print(result, 0 if result.get("ok") else 4)
     except AuthError as exc:
         _print({"ok": False, "error_type": "validation", "message": str(exc)}, 2)
+    except AuthTransportError as exc:
+        _print({"ok": False, "error_type": "transport", "message": str(exc)}, 3)
     except AFIPAdapterError as exc:
         _print({"ok": False, "error_type": "transport", "message": str(exc)}, 3)
     except Exception as exc:
@@ -435,10 +447,12 @@ def invoice_show(env, cuit, pto_vta, tipo_comp, cbte_nro, token, sign):
 
     afip_detail = None
     afip_error = None
+    afip_exc = None
     try:
         afip = _build_afip_adapter(s)
         afip_detail = afip.get_invoice_detail(s.tipo_comp_factura_c, s.pto_vta, cbte_nro)
-    except (AuthError, AFIPAdapterError, Exception) as exc:
+    except (AuthError, AuthTransportError, AFIPAdapterError, Exception) as exc:
+        afip_exc = exc
         afip_error = str(exc)
 
     if afip_detail is not None:
@@ -469,6 +483,13 @@ def invoice_show(env, cuit, pto_vta, tipo_comp, cbte_nro, token, sign):
             "afip_error": afip_error,
             "local": local_detail,
         })
+
+    if isinstance(afip_exc, AuthError):
+        _print({"ok": False, "error_type": "validation", "message": afip_error}, 2)
+    if isinstance(afip_exc, (AuthTransportError, AFIPAdapterError)) and not isinstance(afip_exc, InvoiceNotFoundError):
+        _print({"ok": False, "error_type": "transport", "message": afip_error}, 3)
+    if afip_exc is not None and not isinstance(afip_exc, InvoiceNotFoundError):
+        _print({"ok": False, "error_type": "unexpected", "message": afip_error}, 5)
 
     _print({
         "ok": False,
