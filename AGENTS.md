@@ -13,6 +13,11 @@ Comandos principales:
 - `monofact invoice-list`
 - `monofact invoice-show`
 
+Flags globales útiles:
+
+- `--format [json|yaml|yml]`
+- `-v` / `--verbose` para humanizar códigos AFIP en la salida
+
 El entrypoint del CLI está en `monofact/cli.py`.
 
 ## Estructura del repo
@@ -92,7 +97,7 @@ Flujo de `invoice-create`:
 3. Resuelve `token/sign` manualmente o vía `pyafipws`.
 4. `AFIPAdapter.emit_factura_c()` consulta último comprobante, calcula el siguiente y llama `CrearFactura()` + `CAESolicitar()`.
 5. `storage.py` persiste request y response en SQLite.
-6. El CLI devuelve JSON con `record_id`.
+6. El CLI devuelve JSON con `record_id`; con `-v` agrega además metadatos del request humanizados.
 
 Flujo de `invoice-list`:
 
@@ -111,6 +116,7 @@ Flujo de `invoice-show`:
 
 Defaults relevantes al emitir:
 
+- `--concepto` default: `2` (Servicios)
 - si `doc_tipo == 99`, el CLI completa `condicion_iva_receptor_id = 5` (Consumidor Final)
 - si `concepto in (2, 3)`, completa `fecha_serv_desde` y `fecha_serv_hasta` con `cbte_fch` salvo que se pasen por parámetro
 - si `concepto in (2, 3)`, completa `fecha_venc_pago` con la fecha actual de ejecución del comando

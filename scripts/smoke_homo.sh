@@ -14,6 +14,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT INT TERM HUP
 
 SMOKE_DATE=${MONOFACT_SMOKE_DATE:-$(date +%Y%m%d)}
 SMOKE_AMOUNT=${MONOFACT_SMOKE_AMOUNT:-1000.00}
+TODAY=$(date +%Y%m%d)
 
 run_output() {
   format=$1
@@ -48,6 +49,17 @@ assert data["env"] == "homo", data
 assert int(data["pto_vta"]) > 0, data
 PY
 
+run_output json config-check-verbose uv run monofact -v --format json config-check --env homo
+uv run python - json "$TMP_DIR/config-check-verbose.json" <<'PY'
+import json, sys, yaml
+fmt, path = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh) if fmt == "json" else yaml.safe_load(fh)
+assert data["ok"] is True, data
+assert data["env"] == "Homologación", data
+assert int(data["pto_vta"]) > 0, data
+PY
+
 run_output json auth-refresh uv run monofact --format json auth-refresh --env homo
 uv run python - json "$TMP_DIR/auth-refresh.json" <<'PY'
 import json, sys, yaml
@@ -56,6 +68,16 @@ with open(path, encoding="utf-8") as fh:
     data = json.load(fh) if fmt == "json" else yaml.safe_load(fh)
 assert data["ok"] is True, data
 assert data["env"] == "homo", data
+PY
+
+run_output json auth-refresh-verbose uv run monofact -v --format json auth-refresh --env homo
+uv run python - json "$TMP_DIR/auth-refresh-verbose.json" <<'PY'
+import json, sys, yaml
+fmt, path = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh) if fmt == "json" else yaml.safe_load(fh)
+assert data["ok"] is True, data
+assert data["env"] == "Homologación", data
 PY
 
 run_output yaml auth-refresh uv run monofact --format yaml auth-refresh --env homo
@@ -79,6 +101,17 @@ assert data["tipo_comp"] == 11, data
 assert int(data["pto_vta"]) > 0, data
 PY
 
+run_output json invoice-last-verbose uv run monofact -v --format json invoice-last --env homo
+uv run python - json "$TMP_DIR/invoice-last-verbose.json" <<'PY'
+import json, sys, yaml
+fmt, path = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh) if fmt == "json" else yaml.safe_load(fh)
+assert data["ok"] is True, data
+assert data["tipo_comp"] == "Factura C", data
+assert int(data["pto_vta"]) > 0, data
+PY
+
 run_output yaml invoice-last uv run monofact --format yaml invoice-last --env homo
 uv run python - yaml "$TMP_DIR/invoice-last.yaml" <<'PY'
 import json, sys, yaml
@@ -87,6 +120,17 @@ with open(path, encoding="utf-8") as fh:
     data = json.load(fh) if fmt == "json" else yaml.safe_load(fh)
 assert data["ok"] is True, data
 assert data["tipo_comp"] == 11, data
+assert int(data["pto_vta"]) > 0, data
+PY
+
+run_output yaml invoice-last-verbose uv run monofact -v --format yaml invoice-last --env homo
+uv run python - yaml "$TMP_DIR/invoice-last-verbose.yaml" <<'PY'
+import json, sys, yaml
+fmt, path = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh) if fmt == "json" else yaml.safe_load(fh)
+assert data["ok"] is True, data
+assert data["tipo_comp"] == "Factura C", data
 assert int(data["pto_vta"]) > 0, data
 PY
 
@@ -110,7 +154,45 @@ assert int(data["record_id"]) > 0, data
 assert data["cae"], data
 PY
 
+run_output json invoice-create-verbose \
+  uv run monofact -v --format json invoice-create \
+    --env homo \
+    --doc-tipo consumidor-final \
+    --doc-nro 0 \
+    --imp-total "$SMOKE_AMOUNT" \
+    --cbte-fch "$SMOKE_DATE"
+
+uv run python - json "$TMP_DIR/invoice-create-verbose.json" "$SMOKE_DATE" "$TODAY" <<'PY'
+import json, sys, yaml
+fmt, path = sys.argv[1], sys.argv[2]
+smoke_date = sys.argv[3]
+today = sys.argv[4]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh) if fmt == "json" else yaml.safe_load(fh)
+assert data["ok"] is True, data
+assert data["resultado"] == "Aprobado", data
+assert int(data["cbte_nro"]) > 0, data
+assert int(data["record_id"]) > 0, data
+assert data["cae"], data
+assert data["env"] == "Homologación", data
+assert data["tipo_comp"] == "Factura C", data
+assert data["doc_tipo"] == "Consumidor Final", data
+assert data["concepto"] == "Servicios", data
+assert data["condicion_iva_receptor_id"] == "Consumidor Final", data
+assert data["fecha_serv_desde"] == smoke_date, data
+assert data["fecha_serv_hasta"] == smoke_date, data
+assert data["fecha_venc_pago"] == today, data
+PY
+
 CBTE_NRO=$(uv run python - "$TMP_DIR/invoice-create.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    data = json.load(fh)
+print(data["cbte_nro"])
+PY
+)
+
+VERBOSE_CBTE_NRO=$(uv run python - "$TMP_DIR/invoice-create-verbose.json" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as fh:
     data = json.load(fh)
@@ -128,6 +210,20 @@ with open(path, encoding="utf-8") as fh:
 assert data["ok"] is True, data
 assert data["count"] >= 1, data
 assert any(int(item["cbte_nro"]) == cbte_nro for item in data["items"]), data
+PY
+
+run_output json invoice-list-by-number-verbose uv run monofact -v --format json invoice-list --env homo --cbte-nro "$VERBOSE_CBTE_NRO"
+uv run python - json "$TMP_DIR/invoice-list-by-number-verbose.json" "$VERBOSE_CBTE_NRO" <<'PY'
+import json, sys, yaml
+fmt, path = sys.argv[1], sys.argv[2]
+cbte_nro = int(sys.argv[3])
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh) if fmt == "json" else yaml.safe_load(fh)
+assert data["ok"] is True, data
+assert data["env"] == "Homologación", data
+assert data["tipo_comp"] == "Factura C", data
+assert data["count"] >= 1, data
+assert any(int(item["cbte_nro"]) == cbte_nro and item["doc_tipo"] == "Consumidor Final" and item["resultado"] == "Aprobado" for item in data["items"]), data
 PY
 
 run_output yaml invoice-list-by-number uv run monofact --format yaml invoice-list --env homo --cbte-nro "$CBTE_NRO"
@@ -153,6 +249,21 @@ with open(path, encoding="utf-8") as fh:
 assert data["ok"] is True, data
 assert data["count"] >= 1, data
 assert any(item["cbte_fch"] == smoke_date and int(item["cbte_nro"]) == cbte_nro for item in data["items"]), data
+PY
+
+run_output json invoice-list-by-date-verbose uv run monofact -v --format json invoice-list --env homo --from "$SMOKE_DATE" --to "$SMOKE_DATE"
+uv run python - json "$TMP_DIR/invoice-list-by-date-verbose.json" "$SMOKE_DATE" "$VERBOSE_CBTE_NRO" <<'PY'
+import json, sys, yaml
+fmt, path = sys.argv[1], sys.argv[2]
+smoke_date = sys.argv[3]
+cbte_nro = int(sys.argv[4])
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh) if fmt == "json" else yaml.safe_load(fh)
+assert data["ok"] is True, data
+assert data["env"] == "Homologación", data
+assert data["tipo_comp"] == "Factura C", data
+assert data["count"] >= 1, data
+assert any(item["cbte_fch"] == smoke_date and int(item["cbte_nro"]) == cbte_nro and item["doc_tipo"] == "Consumidor Final" for item in data["items"]), data
 PY
 
 run_output yaml invoice-list-by-date uv run monofact --format yaml invoice-list --env homo --from "$SMOKE_DATE" --to "$SMOKE_DATE"
@@ -185,6 +296,30 @@ if data.get("local") is not None:
     assert int(data["local"]["cbte_nro"]) == cbte_nro, data
 PY
 
+run_output json invoice-show-verbose uv run monofact -v --format json invoice-show --env homo --cbte-nro "$VERBOSE_CBTE_NRO"
+uv run python - json "$TMP_DIR/invoice-show-verbose.json" "$VERBOSE_CBTE_NRO" <<'PY'
+import json, sys, yaml
+fmt, path = sys.argv[1], sys.argv[2]
+cbte_nro = int(sys.argv[3])
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh) if fmt == "json" else yaml.safe_load(fh)
+assert data["ok"] is True, data
+assert data["env"] == "Homologación", data
+assert data["tipo_comp"] == "Factura C", data
+assert data["source"] in {"afip", "local"}, data
+assert int(data["cbte_nro"]) == cbte_nro, data
+if data["afip"] is not None:
+    assert data["afip"]["tipo_comp"] == "Factura C", data
+    assert int(data["afip"]["cbte_nro"]) == cbte_nro, data
+    assert data["afip"]["invoice"]["tipo_cbte"] == "Factura C", data
+if data.get("local") is not None:
+    assert int(data["local"]["cbte_nro"]) == cbte_nro, data
+    assert data["local"]["request"]["concepto"] == "Servicios", data
+    assert data["local"]["request"]["doc_tipo"] == "Consumidor Final", data
+    assert data["local"]["request"]["tipo_comp"] == "Factura C", data
+    assert data["local"]["response"]["resultado"] == "Aprobado", data
+PY
+
 run_output yaml invoice-show uv run monofact --format yaml invoice-show --env homo --cbte-nro "$CBTE_NRO"
 uv run python - yaml "$TMP_DIR/invoice-show.yaml" "$CBTE_NRO" <<'PY'
 import json, sys, yaml
@@ -202,4 +337,4 @@ if data.get("local") is not None:
     assert int(data["local"]["cbte_nro"]) == cbte_nro, data
 PY
 
-echo "Smoke homo OK para cbte_nro=$CBTE_NRO fecha=$SMOKE_DATE"
+echo "Smoke homo OK para cbte_nro=$CBTE_NRO verbose_cbte_nro=$VERBOSE_CBTE_NRO fecha=$SMOKE_DATE"

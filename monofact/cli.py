@@ -35,6 +35,63 @@ DOC_TIPO_ALIASES = {
     "cf": 99,
 }
 
+CONCEPTO_LABELS = {
+    1: "Productos",
+    2: "Servicios",
+    3: "Productos y Servicios",
+}
+
+TIPO_COMP_LABELS = {
+    1: "Factura A",
+    6: "Factura B",
+    11: "Factura C",
+}
+
+DOC_TIPO_LABELS = {
+    80: "CUIT",
+    86: "CUIL",
+    96: "DNI",
+    99: "Consumidor Final",
+}
+
+RESULTADO_LABELS = {
+    "A": "Aprobado",
+    "R": "Rechazado",
+    "P": "Pendiente",
+}
+
+ENV_LABELS = {
+    "homo": "Homologación",
+    "prod": "Producción",
+}
+
+MONEDA_LABELS = {
+    "PES": "Pesos",
+    "DOL": "Dólares",
+}
+
+COND_IVA_RECEPTOR_LABELS = {
+    5: "Consumidor Final",
+}
+
+EMISION_TIPO_LABELS = {
+    "CAE": "CAE",
+    "CAEA": "CAEA",
+}
+
+VERBOSE_FIELD_MAPS = {
+    "concepto": CONCEPTO_LABELS,
+    "tipo_comp": TIPO_COMP_LABELS,
+    "tipo_cbte": TIPO_COMP_LABELS,
+    "doc_tipo": DOC_TIPO_LABELS,
+    "tipo_doc": DOC_TIPO_LABELS,
+    "resultado": RESULTADO_LABELS,
+    "env": ENV_LABELS,
+    "moneda_id": MONEDA_LABELS,
+    "condicion_iva_receptor_id": COND_IVA_RECEPTOR_LABELS,
+    "emision_tipo": EMISION_TIPO_LABELS,
+}
+
 
 def _normalize_output_format(value: str) -> str:
     normalized = value.strip().lower()
@@ -53,7 +110,36 @@ def _get_output_format() -> str:
     return "json"
 
 
+def _is_verbose_output() -> bool:
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return False
+    root = ctx.find_root()
+    if root.obj and "verbose" in root.obj:
+        return bool(root.obj["verbose"])
+    return False
+
+
+def _humanize_value(field_name: str, value):
+    labels = VERBOSE_FIELD_MAPS.get(field_name)
+    if labels is None:
+        return value
+    return labels.get(value, value)
+
+
+def _humanize_payload(value, *, field_name: str | None = None):
+    if isinstance(value, dict):
+        return {key: _humanize_payload(item, field_name=key) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_humanize_payload(item, field_name=field_name) for item in value]
+    if field_name is None:
+        return value
+    return _humanize_value(field_name, value)
+
+
 def _serialize_payload(payload: dict) -> str:
+    if _is_verbose_output():
+        payload = _humanize_payload(payload)
     output_format = _get_output_format()
     if output_format == "yaml":
         return yaml.safe_dump(
@@ -171,11 +257,13 @@ def _resolve_service_dates(
     show_default=True,
     help="Formato de salida del CLI.",
 )
+@click.option("-v", "--verbose", is_flag=True, help="Humaniza valores codificados en la salida.")
 @click.pass_context
-def main(ctx, output_format):
+def main(ctx, output_format, verbose):
     """CLI MVP Factura C (Monotributo) sobre PyAfipWs."""
     ctx.ensure_object(dict)
     ctx.obj["output_format"] = _normalize_output_format(output_format)
+    ctx.obj["verbose"] = verbose
 
 
 @main.command("config-check")
@@ -262,7 +350,13 @@ def invoice_last(env, cuit, pto_vta, tipo_comp, token, sign):
 @click.option("--doc-nro", type=int, required=True)
 @click.option("--imp-total", type=Decimal, required=True)
 @click.option("--cbte-fch", type=str)
-@click.option("--concepto", type=int, default=1)
+@click.option(
+    "--concepto",
+    type=int,
+    default=2,
+    show_default=True,
+    help="1=Productos, 2=Servicios, 3=Productos y Servicios.",
+)
 @click.option("--fecha-serv-desde", type=str)
 @click.option("--fecha-serv-hasta", type=str)
 @click.option("--cond-iva-receptor-id", type=int)
@@ -360,8 +454,10 @@ def invoice_create(
         result = afip.emit_factura_c(req)
         conn = connect(s.db_path)
         rid = save_invoice(conn, payload, result)
-        result["record_id"] = rid
-        _print(result, 0 if result.get("ok") else 4)
+        output = {**result, "record_id": rid}
+        if _is_verbose_output():
+            output.update(payload)
+        _print(output, 0 if result.get("ok") else 4)
     except AuthError as exc:
         _print({"ok": False, "error_type": "validation", "message": str(exc)}, 2)
     except AuthTransportError as exc:
