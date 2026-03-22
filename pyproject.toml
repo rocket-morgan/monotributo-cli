@@ -11,6 +11,8 @@ requires-python = ">=3.10"
 dependencies = [
   "click>=8.1",
   "pyafipws",
+  "PyYAML>=6.0",
+  "python-dotenv>=1.0",
   "setuptools>=82",
 ]
 

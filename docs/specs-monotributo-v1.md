@@ -94,14 +94,16 @@ Parámetros sugeridos:
 - `--doc-tipo <int>` (ej. DNI/CUIT según tabla AFIP)
 - `--doc-nro <int>`
 - `--imp-total <decimal>`
-- `--concepto <int>` (productos/servicios/ambos)
+- `--concepto <int>` (productos/servicios/ambos, default recomendado: `2` servicios)
 - `--cbte-fch <YYYYMMDD>` (default: hoy)
 - `--token <str>` (opcional, si no viene de config)
 - `--sign <str>` (opcional, si no viene de config)
-- `--out json` (default)
+- `--format [json|yaml|yml]` (default: `json`)
+- `-v` / `--verbose` para humanizar códigos AFIP en la salida
 
 Salida:
-- JSON en stdout con estado, CAE, vencimiento, número emitido y errores/observaciones.
+- `json` en stdout para scripting
+- `yaml`/`yml` en stdout con el mismo payload, pero en formato más legible para humanos
 
 #### `monofact invoice:last`
 Consulta último comprobante autorizado.

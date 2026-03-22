@@ -16,9 +16,17 @@ class InvoiceInput:
     imp_total: Decimal
     cbte_fch: str
     concepto: int
+    condicion_iva_receptor_id: int | None = None
+    fecha_serv_desde: str | None = None
+    fecha_serv_hasta: str | None = None
+    fecha_venc_pago: str | None = None
 
 
 class AFIPAdapterError(Exception):
+    pass
+
+
+class InvoiceNotFoundError(AFIPAdapterError):
     pass
 
 
@@ -52,6 +60,30 @@ class AFIPAdapter:
         last = ws.CompUltimoAutorizado(tipo_comp, pto_vta)
         return int(last)
 
+    def get_invoice_detail(self, tipo_comp: int, pto_vta: int, cbte_nro: int) -> dict:
+        ws = self._get_ws()
+        ws.CompConsultar(tipo_comp, pto_vta, cbte_nro)
+        factura = getattr(ws, "factura", None) or {}
+        if not factura:
+            errors = getattr(ws, "Errores", None) or []
+            message = "No se pudo consultar el comprobante en AFIP."
+            if errors:
+                message = " / ".join(str(err) for err in errors)
+            raise InvoiceNotFoundError(message)
+
+        return {
+            "tipo_comp": int(factura.get("tipo_cbte") or tipo_comp),
+            "pto_vta": int(factura.get("punto_vta") or pto_vta),
+            "cbte_nro": int(factura.get("cbt_hasta") or cbte_nro),
+            "resultado": factura.get("resultado") or getattr(ws, "Resultado", ""),
+            "cae": factura.get("cae") or getattr(ws, "CAE", ""),
+            "cae_vto": factura.get("fch_venc_cae") or getattr(ws, "Vencimiento", ""),
+            "emision_tipo": getattr(ws, "EmisionTipo", ""),
+            "obs": factura.get("obs", []),
+            "errors": getattr(ws, "Errores", None) or [],
+            "invoice": factura,
+        }
+
     def emit_factura_c(self, data: InvoiceInput) -> dict:
         ws = self._get_ws()
         last = self.get_last_cbte(data.tipo_comp, data.pto_vta)
@@ -72,8 +104,12 @@ class AFIPAdapter:
             imp_trib=0.00,
             imp_op_ex=0.00,
             fecha_cbte=data.cbte_fch,
+            fecha_serv_desde=data.fecha_serv_desde,
+            fecha_serv_hasta=data.fecha_serv_hasta,
+            fecha_venc_pago=data.fecha_venc_pago,
             moneda_id="PES",
             moneda_ctz="1.0000",
+            condicion_iva_receptor_id=data.condicion_iva_receptor_id,
         )
         ws.CAESolicitar()
 
