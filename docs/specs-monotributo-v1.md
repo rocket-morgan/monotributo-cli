@@ -94,11 +94,12 @@ Parámetros sugeridos:
 - `--doc-tipo <int>` (ej. DNI/CUIT según tabla AFIP)
 - `--doc-nro <int>`
 - `--imp-total <decimal>`
-- `--concepto <int>` (productos/servicios/ambos)
+- `--concepto <int>` (productos/servicios/ambos, default recomendado: `2` servicios)
 - `--cbte-fch <YYYYMMDD>` (default: hoy)
 - `--token <str>` (opcional, si no viene de config)
 - `--sign <str>` (opcional, si no viene de config)
 - `--format [json|yaml|yml]` (default: `json`)
+- `-v` / `--verbose` para humanizar códigos AFIP en la salida
 
 Salida:
 - `json` en stdout para scripting

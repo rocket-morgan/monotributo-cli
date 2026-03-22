@@ -97,9 +97,13 @@ Flags mínimas:
 - `--doc-nro`
 - `--imp-total`
 - `--cbte-fch YYYYMMDD` (default hoy)
-- `--concepto` (default 1 productos)
+- `--concepto` (default 2 servicios)
 - `--token` / `--sign` (opcionales si vienen de config)
 - `--force` (saltear guardia anti-duplicado)
+
+Flags globales:
+- `--format [json|yaml|yml]`
+- `-v` / `--verbose` para humanizar códigos AFIP en la salida
 
 ### 5.2 `monofact invoice:last`
 Consulta último comprobante autorizado (Factura C).

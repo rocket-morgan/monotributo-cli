@@ -61,9 +61,12 @@ class FakeAFIPAdapter:
             "obs": [],
             "errors": [],
             "invoice": {
+                "concepto": 1,
+                "tipo_doc": 96,
                 "tipo_cbte": tipo_comp,
                 "punto_vta": pto_vta,
                 "cbt_hasta": cbte_nro,
+                "moneda_id": "PES",
             },
         }
 
@@ -167,6 +170,50 @@ def test_invoice_create_ok_persists(monkeypatch, tmp_path):
     assert data["ok"] is True
     assert data["cae"] == "12345678901234"
     assert data["record_id"] >= 1
+
+
+def test_invoice_create_defaults_to_servicios_and_autocompletes_service_dates(monkeypatch, tmp_path):
+    import monofact.cli as cli_mod
+
+    class FixedDate(dt.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 3, 21)
+
+    captured = {}
+
+    class CapturingAdapter(FakeAFIPAdapter):
+        def emit_factura_c(self, req):
+            captured["concepto"] = req.concepto
+            captured["fecha_serv_desde"] = req.fecha_serv_desde
+            captured["fecha_serv_hasta"] = req.fecha_serv_hasta
+            captured["fecha_venc_pago"] = req.fecha_venc_pago
+            return super().emit_factura_c(req)
+
+    monkeypatch.setattr(cli_mod.dt, "date", FixedDate)
+    monkeypatch.setattr(cli_mod, "AFIPAdapter", CapturingAdapter)
+    runner = CliRunner()
+    res = runner.invoke(
+        main,
+        [
+            "invoice-create",
+            "--doc-tipo",
+            "96",
+            "--doc-nro",
+            "12345678",
+            "--imp-total",
+            "1500.00",
+            "--cbte-fch",
+            "20260320",
+        ],
+        env=_base_env(tmp_path),
+    )
+
+    assert res.exit_code == 0
+    assert captured["concepto"] == 2
+    assert captured["fecha_serv_desde"] == "20260320"
+    assert captured["fecha_serv_hasta"] == "20260320"
+    assert captured["fecha_venc_pago"] == "20260321"
 
 
 def test_invoice_create_rejected(monkeypatch, tmp_path):
@@ -429,6 +476,37 @@ def test_invoice_create_accepts_doc_tipo_alias(monkeypatch, tmp_path):
     assert captured["doc_tipo"] == 99
 
 
+def test_invoice_create_verbose_humanizes_request_metadata(monkeypatch, tmp_path):
+    import monofact.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "AFIPAdapter", FakeAFIPAdapter)
+    runner = CliRunner()
+    res = runner.invoke(
+        main,
+        [
+            "-v",
+            "invoice-create",
+            "--doc-tipo",
+            "96",
+            "--doc-nro",
+            "12345678",
+            "--imp-total",
+            "1500.00",
+            "--cbte-fch",
+            "20260320",
+        ],
+        env=_base_env(tmp_path),
+    )
+    data = json.loads(res.output)
+
+    assert res.exit_code == 0
+    assert data["resultado"] == "Aprobado"
+    assert data["env"] == "Homologación"
+    assert data["tipo_comp"] == "Factura C"
+    assert data["doc_tipo"] == "DNI"
+    assert data["concepto"] == "Servicios"
+
+
 def test_invoice_create_rejects_unknown_doc_tipo_alias(tmp_path):
     runner = CliRunner()
     res = runner.invoke(
@@ -485,6 +563,49 @@ def test_invoice_list_by_date_range(monkeypatch, tmp_path):
     assert data["items"][0]["cbte_fch"] == "20260301"
 
 
+def test_invoice_last_verbose_humanizes_tipo_comp_json(monkeypatch, tmp_path):
+    import monofact.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "AFIPAdapter", FakeAFIPAdapter)
+    runner = CliRunner()
+    res = runner.invoke(main, ["-v", "invoice-last"], env=_base_env(tmp_path))
+    data = json.loads(res.output)
+
+    assert res.exit_code == 0
+    assert data["tipo_comp"] == "Factura C"
+
+
+def test_invoice_last_verbose_humanizes_tipo_comp_yaml(monkeypatch, tmp_path):
+    import monofact.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "AFIPAdapter", FakeAFIPAdapter)
+    runner = CliRunner()
+    res = runner.invoke(main, ["-v", "--format", "yaml", "invoice-last"], env=_base_env(tmp_path))
+    data = yaml.safe_load(res.output)
+
+    assert res.exit_code == 0
+    assert data["tipo_comp"] == "Factura C"
+
+
+def test_invoice_list_verbose_humanizes_summary_fields(monkeypatch, tmp_path):
+    import monofact.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "AFIPAdapter", FakeAFIPAdapter)
+    runner = CliRunner()
+    env = _base_env(tmp_path)
+
+    _create_invoice(runner, env, doc_tipo="dni")
+
+    res = runner.invoke(main, ["-v", "invoice-list", "--cbte-nro", "124"], env=env)
+    data = json.loads(res.output)
+
+    assert res.exit_code == 0
+    assert data["env"] == "Homologación"
+    assert data["tipo_comp"] == "Factura C"
+    assert data["items"][0]["doc_tipo"] == "DNI"
+    assert data["items"][0]["resultado"] == "Aprobado"
+
+
 def test_invoice_list_rejects_invalid_ranges(tmp_path):
     runner = CliRunner()
     res = runner.invoke(main, ["invoice-list", "--from", "20260302", "--to", "20260301"], env=_base_env(tmp_path))
@@ -526,6 +647,31 @@ def test_invoice_show_returns_afip_and_local(monkeypatch, tmp_path):
     assert data["local_fallback"] is False
     assert data["afip"]["cbte_nro"] == 124
     assert data["local"]["cbte_nro"] == 124
+
+
+def test_invoice_show_verbose_humanizes_nested_payloads(monkeypatch, tmp_path):
+    import monofact.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "AFIPAdapter", FakeAFIPAdapter)
+    runner = CliRunner()
+    env = _base_env(tmp_path)
+
+    _create_invoice(runner, env)
+
+    res = runner.invoke(main, ["-v", "invoice-show", "--cbte-nro", "124"], env=env)
+    data = json.loads(res.output)
+
+    assert res.exit_code == 0
+    assert data["env"] == "Homologación"
+    assert data["tipo_comp"] == "Factura C"
+    assert data["afip"]["resultado"] == "Aprobado"
+    assert data["afip"]["invoice"]["tipo_cbte"] == "Factura C"
+    assert data["afip"]["invoice"]["tipo_doc"] == "DNI"
+    assert data["afip"]["invoice"]["concepto"] == "Productos"
+    assert data["local"]["request"]["concepto"] == "Servicios"
+    assert data["local"]["request"]["tipo_comp"] == "Factura C"
+    assert data["local"]["request"]["doc_tipo"] == "DNI"
+    assert data["local"]["response"]["resultado"] == "Aprobado"
 
 
 def test_invoice_show_falls_back_to_local(monkeypatch, tmp_path):
