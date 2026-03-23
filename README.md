@@ -5,6 +5,21 @@ MVP CLI para emitir Factura C (Monotributo) reutilizando `pyafipws`.
 ## Estado
 WIP (wrapper inicial V2).
 
+## Skill de Codex
+El repo incluye una skill reusable en [skills/monotributo-cli](/Users/andychapo/Projects/rocket-projects/monotributo-cli/skills/monotributo-cli) para operar `monofact` desde Codex.
+
+Defaults de la skill:
+
+- `--env prod`
+- `-v`
+- `--format json`
+
+Wrapper recomendada:
+
+```bash
+bash ./skills/monotributo-cli/scripts/run_monofact_prod.sh config-check
+```
+
 ## Comandos
 - `monofact config-check`
 - `monofact auth-refresh`
