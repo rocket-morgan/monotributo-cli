@@ -1,0 +1,4 @@
+interface:
+  display_name: "Monotributo CLI"
+  short_description: "Operar monofact en produccion con defaults seguros"
+  default_prompt: "Use $monotributo-cli to operar monofact en este repo con salida JSON verbose y produccion por defecto."
