@@ -1,12 +1,38 @@
 # monotributo-cli
 
-MVP CLI para emitir Factura C (Monotributo) reutilizando `pyafipws`.
+CLI para emitir Factura C (Monotributo). Esto es un wrapper del projecto `pyafipws`.
 
-## Estado
-WIP (wrapper inicial V2).
+### Ejemplo
+Emitir una factura de $1000 ARS por Servicios
+```bash
+uv run monofact invoice-create \
+  --env homo \
+  --doc-tipo consumidor-final \
+  --doc-nro 0 \
+  --imp-total 1000.00 \
+  --cbte-fch 20260320 \
+  --concepto 2
+```
 
-## Skill de Codex
-El repo incluye una skill reusable en [skills/monotributo-cli](/Users/andychapo/Projects/rocket-projects/monotributo-cli/skills/monotributo-cli) para operar `monofact` desde Codex.
+## Comandos
+- `monofact config-check` Valida que la configuración esta ok
+- `monofact auth-refresh`
+- `monofact invoice-last` Trae ultima factura emitida
+- `monofact invoice-create` Genera una nueva factura
+- `monofact invoice-list` Lista todas las facturas, o bien trae las de un periodo especificado
+- `monofact invoice-show` Muestra los detalles de factura especificada
+
+
+## Formato de salida
+- Por default el CLI responde en `json`
+- También podés pedir salida humana en `yaml` o `yml` con un flag global
+
+```bash
+uv run monofact --format yaml config-check
+```
+
+## Skill para Agentes de AI
+El repo incluye una skill reusable en [skills/monotributo-cli](/skills/monotributo-cli) para operar `monofact` desde Codex/Gemini/Claude/OpenClaw.
 
 Defaults de la skill:
 
@@ -20,30 +46,14 @@ Wrapper recomendada:
 bash ./skills/monotributo-cli/scripts/run_monofact_prod.sh config-check
 ```
 
-## Comandos
-- `monofact config-check`
-- `monofact auth-refresh`
-- `monofact invoice-last`
-- `monofact invoice-create`
-- `monofact invoice-list`
-- `monofact invoice-show`
-
-## Formato de salida
-- Por default el CLI responde en `json`
-- También podés pedir salida humana en `yaml` o `yml` con un flag global
-
-```bash
-uv run monofact --format yaml config-check
-```
-
 ## Setup local con uv
 - Requiere `uv`
 - Usa Python `3.14.3` vía `.python-version`
-- Instala `pyafipws` desde `../pyafipws` en modo editable
+- Clona e instala `pyafipws` desde `https://github.com/reingart/pyafipws` en modo editable
 - Auto-carga `.env` si existe en el directorio actual
 - Precedencia de configuración: flags CLI > variables exportadas en shell > `.env` > defaults
 - Si faltan `MONOFACT_TOKEN` y `MONOFACT_SIGN`, intenta obtenerlos desde `pyafipws` según `--env`
-- Checkout local esperado de `pyafipws`: `/Users/andychapo/Projects/rocket-projects/pyafipws`
+
 
 ### Inicializar entorno
 ```bash
@@ -139,7 +149,7 @@ uv run pytest -q
 ```
 
 ### Smoke test real en homologación
-Hay un script reusable en [scripts/smoke_homo.sh](/Users/andychapo/Projects/rocket-projects/monotributo-cli/scripts/smoke_homo.sh) que ejecuta:
+Hay un script reusable en [scripts/smoke_homo.sh](/scripts/smoke_homo.sh) que ejecuta:
 
 - `config-check`
 - `auth-refresh`
@@ -156,5 +166,4 @@ Corre contra `homo` y emite una factura real de prueba en homologación.
 ```
 
 ## Documentación
-- `docs/specs-monotributo-v1.md`
 - `docs/specs-monotributo-v2.md`
