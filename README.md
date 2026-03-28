@@ -16,7 +16,7 @@ uv run monofact invoice-create \
 
 ## Comandos
 - `monofact config-check` Valida que la configuración esta ok
-- `monofact auth-refresh`
+- `monofact auth-refresh` Renueva las credenciales de autenticación AFIP que usa pyafipws
 - `monofact invoice-last` Trae ultima factura emitida
 - `monofact invoice-create` Genera una nueva factura
 - `monofact invoice-list` Lista todas las facturas, o bien trae las de un periodo especificado
