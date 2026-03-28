@@ -9,3 +9,8 @@ __pycache__/
 monofact.db
 cache/
 secrets/
+.gemini/
+.claude/
+.idea/
+.vscode/
+.DS_Store
